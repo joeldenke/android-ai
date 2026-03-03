@@ -7,7 +7,7 @@ Expert-level Android development agents, skills, and hooks for Claude Code.
 ### Via Claude Code plugin marketplace (recommended)
 
 ```bash
-/plugin marketplace add joeldenke/android-ai
+/plugin marketplace add https://github.com/joeldenke/android-ai
 /plugin install android-ai
 ```
 
