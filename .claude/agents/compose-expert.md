@@ -608,128 +608,211 @@ class FeedState(private val saved: FeedSavedData, private val retained: FeedReta
 
 ---
 
-## Design Token Mental Model — Theme-Agnostic Component Design
+## Design Token Mental Model — System-Agnostic Component Design
 
-Components should be written against **semantic tokens**, never raw values. This makes them work correctly in any theme (light, dark, brand, white-label) without modification.
+Components must be written against **semantic tokens**, never raw values. This principle is independent of whether you use Material3, a fully custom design system, or a white-label system. The token layer is the contract between the design system and the component.
 
 ### The Token Hierarchy
 
 ```
-Raw values  →  Semantic tokens  →  Component roles
-(#1A73E8)      (colorPrimary)       (buttonBackground)
-(16.sp)        (typographyBody)     (itemLabel)
-(8.dp)         (spacingMedium)      (cardPadding)
+Raw values       →    Semantic tokens      →    Component slots
+(#1A73E8)             (colorPrimary)             (buttonBackground)
+(16.sp)               (typographyBody)            (itemLabel)
+(8.dp)                (spacingMedium)             (cardPadding)
+
+Design system         Theme provides              Component reads
+owns these            the mapping                 from slots only
 ```
 
-**Rule**: Components read from semantic tokens. Themes map tokens to raw values. Components never reference raw values.
+**Core rule**: Components read tokens. Themes map tokens to raw values. Components never see raw values — ever.
 
-### 32. Always Read from `MaterialTheme` Tokens, Never Hardcode
+### 32. Define Your Token Contract with `CompositionLocal`
 
-```kotlin
-// Bad — hardcoded raw value, breaks in dark mode and custom themes
-@Composable
-fun PriceTag(price: String, modifier: Modifier = Modifier) {
-    Text(
-        text = price,
-        color = Color(0xFF1A73E8),   // hardcoded!
-        fontSize = 14.sp,            // hardcoded!
-        modifier = modifier
-    )
-}
-
-// Good — semantic tokens, works in every theme
-@Composable
-fun PriceTag(price: String, modifier: Modifier = Modifier) {
-    Text(
-        text = price,
-        color = MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-    )
-}
-```
-
-### 33. Extend Material3 Tokens for Custom Design System Needs
-
-Define custom tokens as `CompositionLocal` only when Material3's token set is insufficient. Document every addition.
+Tokens are provided through the composition tree. This works identically whether you wrap Material3 or build from scratch.
 
 ```kotlin
-// Custom token extension — maps to a named slot, not a raw color
+// Define token types — pure data, no Compose dependency
 @Immutable
-data class AppColorExtensions(
+data class AppColors(
+    val primary: Color,
+    val onPrimary: Color,
+    val background: Color,
+    val surface: Color,
+    val onSurface: Color,
+    val error: Color,
+    val onError: Color,
     val success: Color,
-    val warning: Color,
     val onSuccess: Color,
+    val outline: Color,
 )
 
-val LocalAppColors = staticCompositionLocalOf {
-    AppColorExtensions(
-        success  = Color.Unspecified,
-        warning  = Color.Unspecified,
-        onSuccess = Color.Unspecified,
+@Immutable
+data class AppTypography(
+    val displayLarge: TextStyle,
+    val titleMedium: TextStyle,
+    val bodyMedium: TextStyle,
+    val labelSmall: TextStyle,
+)
+
+@Immutable
+data class AppSpacing(
+    val xs: Dp,   // 4.dp
+    val sm: Dp,   // 8.dp
+    val md: Dp,   // 16.dp
+    val lg: Dp,   // 24.dp
+    val xl: Dp,   // 32.dp
+)
+
+// Provide via CompositionLocal — staticCompositionLocalOf for tokens that never change mid-tree
+val LocalAppColors    = staticCompositionLocalOf<AppColors>    { error("No AppColors provided") }
+val LocalAppTypography = staticCompositionLocalOf<AppTypography> { error("No AppTypography provided") }
+val LocalAppSpacing   = staticCompositionLocalOf<AppSpacing>   { error("No AppSpacing provided") }
+
+// Convenience accessors — mirrors MaterialTheme's API shape
+object AppTheme {
+    val colors: AppColors       @Composable get() = LocalAppColors.current
+    val typography: AppTypography @Composable get() = LocalAppTypography.current
+    val spacing: AppSpacing     @Composable get() = LocalAppSpacing.current
+}
+```
+
+### 33. Theme Root Maps Raw Values to Tokens — Components Never Branch on Theme
+
+```kotlin
+// Bad — component branches on dark/light, knows about raw values
+@Composable
+fun CardBackground(modifier: Modifier = Modifier) {
+    val bg = if (isSystemInDarkTheme()) Color(0xFF1C1B1F) else Color.White  // wrong!
+    Box(modifier = modifier.background(bg))
+}
+
+// Good — theme owns the mapping; component is oblivious to dark/light/brand
+@Composable
+fun AppTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    val colors = if (darkTheme) darkAppColors() else lightAppColors()
+    CompositionLocalProvider(
+        LocalAppColors     provides colors,
+        LocalAppTypography provides appTypography(),
+        LocalAppSpacing    provides appSpacing(),
+    ) {
+        content()
+    }
+}
+
+private fun lightAppColors() = AppColors(
+    primary    = Color(0xFF1A73E8),
+    onPrimary  = Color.White,
+    background = Color(0xFFFAFAFA),
+    surface    = Color.White,
+    onSurface  = Color(0xFF1C1B1F),
+    error      = Color(0xFFB3261E),
+    onError    = Color.White,
+    success    = Color(0xFF2E7D32),
+    onSuccess  = Color.White,
+    outline    = Color(0xFF79747E),
+)
+
+private fun darkAppColors() = AppColors(
+    primary    = Color(0xFF8AB4F8),
+    onPrimary  = Color(0xFF003063),
+    background = Color(0xFF1C1B1F),
+    surface    = Color(0xFF2B2930),
+    onSurface  = Color(0xFFE6E1E5),
+    error      = Color(0xFFF2B8B5),
+    onError    = Color(0xFF601410),
+    success    = Color(0xFF81C784),
+    onSuccess  = Color(0xFF1B5E20),
+    outline    = Color(0xFF938F99),
+)
+
+// Component reads tokens — works for light, dark, any brand theme
+@Composable
+fun CardBackground(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.background(AppTheme.colors.surface))
+}
+```
+
+### 34. Components Read Tokens — Never Raw Values
+
+```kotlin
+// Bad — hardcoded everywhere
+@Composable
+fun PriceTag(price: String, modifier: Modifier = Modifier) {
+    Text(
+        text     = price,
+        color    = Color(0xFF1A73E8),   // hardcoded color
+        fontSize = 14.sp,               // hardcoded size
+        modifier = modifier.padding(8.dp) // hardcoded spacing
     )
 }
 
-// Usage in component — still semantic, still theme-agnostic
+// Good — fully token-driven; survives any theme swap
 @Composable
-fun StatusBadge(isSuccess: Boolean, label: String, modifier: Modifier = Modifier) {
-    val colors = LocalAppColors.current
-    Surface(
-        color    = if (isSuccess) colors.success else MaterialTheme.colorScheme.error,
-        modifier = modifier,
+fun PriceTag(price: String, modifier: Modifier = Modifier) {
+    Text(
+        text     = price,
+        color    = AppTheme.colors.primary,
+        style    = AppTheme.typography.bodyMedium,
+        modifier = modifier.padding(AppTheme.spacing.sm)
+    )
+}
+```
+
+### 35. Wrapping Material3 — Tokens Still Own the Contract
+
+If you use Material3 as the rendering engine, your token layer still sits on top. Components depend on your tokens, not directly on `MaterialTheme`.
+
+```kotlin
+// Token layer wraps Material3 — swap Material3 for any renderer without touching components
+@Composable
+fun AppTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+    val colors = if (darkTheme) darkAppColors() else lightAppColors()
+
+    // Wire your tokens into Material3's slots so M3 components also respect your system
+    val m3Colors = if (darkTheme) darkColorScheme(
+        primary   = colors.primary,
+        onPrimary = colors.onPrimary,
+        surface   = colors.surface,
+        onSurface = colors.onSurface,
+        error     = colors.error,
+    ) else lightColorScheme(
+        primary   = colors.primary,
+        onPrimary = colors.onPrimary,
+        surface   = colors.surface,
+        onSurface = colors.onSurface,
+        error     = colors.error,
+    )
+
+    CompositionLocalProvider(
+        LocalAppColors     provides colors,
+        LocalAppTypography provides appTypography(),
+        LocalAppSpacing    provides appSpacing(),
     ) {
-        Text(
-            text  = label,
-            color = if (isSuccess) colors.onSuccess else MaterialTheme.colorScheme.onError,
-            style = MaterialTheme.typography.labelSmall,
-        )
+        MaterialTheme(colorScheme = m3Colors) {   // M3 components pick up your tokens too
+            content()
+        }
     }
 }
 ```
 
-### 34. Provide Both Light and Dark Mappings at the Theme Root, Never Inside Components
+### 36. Semantic Token Vocabulary (System-Agnostic Naming)
 
-```kotlin
-// Bad — component decides its own dark mode behavior
-@Composable
-fun Card(modifier: Modifier = Modifier) {
-    val bg = if (isSystemInDarkTheme()) Color.DarkGray else Color.White  // wrong!
-    Surface(color = bg, modifier = modifier) { }
-}
+Name tokens by **role**, never by visual appearance:
 
-// Good — theme provides the mapping; component just reads the token
-@Composable
-fun AppTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val colorScheme = if (darkTheme) darkColorScheme(
-        surface = Color(0xFF1C1B1F),
-        // ...
-    ) else lightColorScheme(
-        surface = Color.White,
-        // ...
-    )
-    MaterialTheme(colorScheme = colorScheme, content = content)
-}
+| Token name | Role | Never name it |
+|---|---|---|
+| `primary` | Main brand action, key interactive element | `blue`, `brandBlue` |
+| `onPrimary` | Content on top of `primary` | `white`, `lightText` |
+| `surface` | Background of cards, sheets, dialogs | `white`, `darkGray` |
+| `onSurface` | Content on `surface` | `black`, `textColor` |
+| `success` | Positive confirmation state | `green` |
+| `outline` | Borders, dividers, input strokes | `gray`, `strokeColor` |
+| `background` | Page/screen background | `pageColor` |
 
-@Composable
-fun Card(modifier: Modifier = Modifier) {
-    Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier) { }  // correct
-}
-```
-
-### 35. Use `MaterialTheme.colorScheme` Role Names as a Vocabulary
-
-| Token | Semantic meaning |
-|---|---|
-| `primary` | Key brand action, most prominent interactive element |
-| `onPrimary` | Content sitting on top of `primary` |
-| `primaryContainer` | Tonal background for containers related to primary |
-| `secondary` | Supporting accent, less prominent actions |
-| `surface` | Default background of cards, sheets, menus |
-| `surfaceVariant` | Alternative surface, slightly differentiated |
-| `outline` | Borders, dividers |
-| `error` / `onError` | Destructive state |
-
-**Rule**: When designing a new component, map every color to one of these roles first. Only reach for `LocalAppColors` if no existing role fits.
+**Rule**: If the name describes a color or visual, rename it to describe the intent.
 
 ---
 
@@ -755,5 +838,5 @@ When a Compose UI is slow, investigate in this order:
 5. Use **Material3** components exclusively
 6. For complex components, draw the **state hoisting diagram**
 7. When reviewing performance, check which **Compose phase** each state read occurs in
-8. Always verify components use **semantic tokens** (`MaterialTheme.colorScheme`, `MaterialTheme.typography`) — never raw colors, sizes, or hardcoded values
+8. Always verify components read from **semantic tokens** (your `AppTheme`, `LocalAppColors`, etc.) — never raw colors, hardcoded sizes, or `isSystemInDarkTheme()` inside components
 9. When state is lost on rotation, diagnose using the **State Lifespans table** (`remember` → `rememberSaveable` → `retain`)
