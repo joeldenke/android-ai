@@ -190,7 +190,198 @@ dependencies {
 
 ---
 
-## Rule 4 — Build Speed Optimisation
+## Rule 4 — App Badging Convention Plugin (Device Availability Guard)
+
+Package the three badging tasks into a convention plugin so any application module gets them for free. This guards against dependency updates that silently add hardware feature requirements (`android.hardware.camera`, `android.hardware.telephony`, etc.) which reduce availability across tablets, TVs, Wear OS, foldables, and cars.
+
+```kotlin
+// build-logic/convention/src/main/kotlin/AndroidApplicationBadgingConventionPlugin.kt
+
+import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension
+import org.gradle.api.DefaultTask
+import org.gradle.api.Plugin
+import org.gradle.api.Project
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import org.gradle.kotlin.dsl.register
+
+class AndroidApplicationBadgingConventionPlugin : Plugin<Project> {
+    override fun apply(target: Project) {
+        val androidComponents = target.extensions
+            .getByType(ApplicationAndroidComponentsExtension::class.java)
+
+        androidComponents.onVariants { variant ->
+            val variantName     = variant.name.replaceFirstChar { it.uppercaseChar() }
+            val goldenFile      = target.rootDir.resolve("app/badging/${variant.name}.txt")
+            val generatedFile   = target.layout.buildDirectory.file("badging/${variant.name}.txt")
+            val apkArtifacts    = variant.artifacts.get(SingleArtifact.APK)
+
+            // 1. Generate — runs aapt2 against the built universal APK
+            val generate = target.tasks.register<GenerateBadgingTask>("generate${variantName}Badging") {
+                apkDirectory.set(apkArtifacts)
+                aapt2Executable.set(resolveAapt2(target))
+                badgingOutput.set(generatedFile)
+            }
+
+            // 2. Update — copies generated → golden file (run locally, then commit)
+            target.tasks.register<Copy>("update${variantName}Badging") {
+                group       = "badging"
+                description = "Updates app/badging/${variant.name}.txt — commit the result for code review"
+                dependsOn(generate)
+                from(generatedFile)
+                into(goldenFile.parentFile.also { it.mkdirs() })
+                rename { goldenFile.name }
+            }
+
+            // 3. Check — CI runs this; fails if generated ≠ golden
+            target.tasks.register<CheckBadgingTask>("check${variantName}Badging") {
+                group       = "verification"
+                description = "Fails if the ${variant.name} APK's required features differ from the committed golden file"
+                dependsOn(generate)
+                generatedBadging.set(generatedFile)
+                this.goldenBadging.set(goldenFile)
+                variantNameProp.set(variant.name)
+            }
+        }
+    }
+
+    private fun resolveAapt2(project: Project): String {
+        val android = project.extensions.getByType(
+            com.android.build.gradle.AppExtension::class.java
+        )
+        return android.sdkDirectory
+            .resolve("build-tools/${android.buildToolsVersion}/aapt2")
+            .absolutePath
+    }
+}
+
+@CacheableTask
+abstract class GenerateBadgingTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val apkDirectory: RegularFileProperty
+
+    @get:Input
+    abstract val aapt2Executable: Property<String>
+
+    @get:OutputFile
+    abstract val badgingOutput: RegularFileProperty
+
+    @TaskAction
+    fun generate() {
+        val apkFile = apkDirectory.get().asFile.parentFile
+            .listFiles { f -> f.extension == "apk" }
+            ?.firstOrNull()
+            ?: error("No APK found in ${apkDirectory.get().asFile.parentFile}")
+
+        val output  = project.exec {
+            commandLine(aapt2Executable.get(), "dump", "badging", apkFile.absolutePath)
+            standardOutput = badgingOutput.get().asFile.also { it.parentFile.mkdirs() }.outputStream()
+        }
+        output.assertNormalExitValue()
+    }
+}
+
+@CacheableTask
+abstract class CheckBadgingTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val generatedBadging: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val goldenBadging: RegularFileProperty
+
+    @get:Input
+    abstract val variantNameProp: Property<String>
+
+    @TaskAction
+    fun check() {
+        val generated = generatedBadging.get().asFile.readText()
+        val golden    = goldenBadging.get().asFile.readText()
+
+        if (generated != golden) {
+            error(
+                """
+                |Badging mismatch for variant '${variantNameProp.get()}'.
+                |
+                |A dependency update or manifest change has altered the APK's required features.
+                |This may reduce availability on tablets, TVs, Wear OS, foldables, or cars.
+                |
+                |Diff:
+                |  generated: ${generatedBadging.get().asFile}
+                |  golden:    ${goldenBadging.get().asFile}
+                |
+                |To review: diff app/badging/${variantNameProp.get()}.txt build/badging/${variantNameProp.get()}.txt
+                |
+                |If intentional: ./gradlew update${variantNameProp.get().replaceFirstChar { it.uppercaseChar() }}Badging
+                |Then commit app/badging/${variantNameProp.get()}.txt and include it in your PR.
+                |
+                |Common culprits:
+                |  android.hardware.camera required='true'      → blocks tablets, TVs
+                |  android.hardware.telephony required='true'   → blocks Wi-Fi tablets
+                |  android.hardware.location.gps required='true' → blocks TVs, PCs
+                |
+                |Override in AndroidManifest.xml if the requirement comes from a library:
+                |  <uses-feature android:name="android.hardware.camera" android:required="false" />
+                """.trimMargin()
+            )
+        }
+    }
+}
+```
+
+Register the plugin in `build-logic`:
+
+```kotlin
+// build-logic/convention/build.gradle.kts
+gradlePlugin {
+    plugins {
+        register("androidApplicationBadging") {
+            id                  = "convention.android.application.badging"
+            implementationClass = "AndroidApplicationBadgingConventionPlugin"
+        }
+    }
+}
+```
+
+Apply in the app module (alongside the application plugin):
+
+```kotlin
+// app/build.gradle.kts
+plugins {
+    id("convention.android.application")
+    id("convention.android.application.badging")   // ← one line opt-in
+}
+```
+
+First-time setup:
+
+```bash
+# Generate and commit the initial golden files for all variants
+./gradlew updateDebugBadging updateReleaseBadging
+git add app/badging/
+git commit -m "chore: add initial aapt2 badging golden files"
+```
+
+CI usage (add to `checkReleaseBadging` job in `pr-check.yml`):
+
+```bash
+./gradlew checkReleaseBadging
+```
+
+---
+
+## Rule 5 — Build Speed Optimisation
 
 Check and apply these settings in `gradle.properties`:
 
@@ -223,7 +414,7 @@ kapt.incremental.apt=true
 
 ---
 
-## Rule 5 — R8 / ProGuard
+## Rule 6 — R8 / ProGuard
 
 ```kotlin
 // Release build type — always enable R8 full mode
@@ -279,7 +470,7 @@ android.enableR8.fullMode=true
 
 ---
 
-## Rule 6 — Build Variants for Multi-Flavour Apps
+## Rule 7 — Build Variants for Multi-Flavour Apps
 
 ```kotlin
 flavorDimensions += listOf("environment")
