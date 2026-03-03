@@ -71,6 +71,8 @@ Specialist sub-agents invoked with `@agent-name`. Each is a deep expert in its d
 
 Reusable slash commands invoked with `/skill-name [args]`.
 
+### Code & Architecture
+
 | Skill | Command | What it does |
 |---|---|---|
 | New Feature | `/new-feature <description>` | Scaffolds full MVVM feature (screen, VM, use case, repo, DI) |
@@ -81,6 +83,27 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Architecture Audit | `/architecture-audit` | Audits current project for layer violations, coupling, anti-patterns |
 | Debug Performance | `/debug-performance <screen or area>` | Identifies Compose recomposition, memory, startup, or jank issues |
 | Write Tests | `/write-tests <target>` | Generates comprehensive test suite (unit + integration + UI) |
+
+### Build & CI/CD
+
+| Skill | Command | What it does |
+|---|---|---|
+| Gradle | `/gradle [task]` | Build health check, optimize, manage deps, R8, version catalog, convention plugins |
+| GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
+
+### Device & QA
+
+| Skill | Command | What it does |
+|---|---|---|
+| ADB | `/adb [task]` | Device inspection, logcat, performance profiling, DB access, deep links |
+| AutoMobile | `/auto-mobile [task]` | AI-driven QA — reproduce bugs, verify UX flows, accessibility audit, screen record |
+
+### Design System
+
+| Skill | Command | What it does |
+|---|---|---|
+| Figma Verify | `/figma-verify [screen or URL]` | Compare Compose implementation against Figma designs, token audit |
+| Figma Sync | `/figma-sync [task]` | Push live screenshots to Figma, sync code tokens → Figma Variables |
 
 ---
 
@@ -176,8 +199,21 @@ Automated quality gates that run during Claude Code lifecycle events.
 ### Build & Tooling
 - Kotlin DSL (`build.gradle.kts`) for all build files
 - Version Catalog (`libs.versions.toml`) for all dependency versions
-- `buildSrc` or convention plugins for shared build logic
+- Convention plugins in `build-logic/` for shared build logic
 - Enable `explicitApi()` for library modules
-- R8 full mode for release builds
+- R8 full mode for release builds (`android.enableR8.fullMode=true`)
 - Baseline profiles for startup performance
 - Use `lint { abortOnError = true }` in CI
+- `gradle/actions/setup-gradle` for all GitHub Actions workflows (not manual cache steps)
+- Pin all GHA action references to full SHA (never mutable tags)
+
+### Device & QA
+- Use `/adb` for device inspection, logcat analysis, and performance snapshots
+- Use `/auto-mobile` for AI-driven bug reproduction and UX flow verification
+- Always test in debug builds only — never use device control tools against production
+
+### Design System
+- All design tokens defined as `@Immutable` data classes, provided via `CompositionLocal`
+- Components read from semantic tokens only — never raw colors or hardcoded sizes
+- Use `/figma-verify` to compare implementation against Figma before marking a feature done
+- Use `/figma-sync` to push implementation screenshots back to Figma for design review

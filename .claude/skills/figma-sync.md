@@ -1,0 +1,201 @@
+---
+name: figma-sync
+description: Sync code back to Figma — capture live Android UI as Figma frames, update design tokens from code, and maintain bidirectional consistency between implementation and design.
+---
+
+When the user runs `/figma-sync [task]`, use the Figma MCP and ADB to capture the live implementation and push it into Figma as editable frames, or sync token values from code back into Figma Variables.
+
+## Setup
+
+Same as `/figma-verify` — requires the Figma MCP server:
+
+```bash
+claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp
+```
+
+---
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/figma-sync screen <screen-name>` | Screenshot live screen → Figma frame |
+| `/figma-sync flow <flow-name>` | Capture full flow as a series of Figma frames |
+| `/figma-sync tokens` | Push code token values → Figma Variables |
+| `/figma-sync component <name>` | Screenshot component in all states → Figma |
+| `/figma-sync diff` | Compare code tokens vs Figma Variables, generate sync plan |
+
+---
+
+## Screen to Figma
+
+Captures the live Android UI as a Figma frame for design review, design polish, or documentation.
+
+```
+/figma-sync screen ProfileScreen
+
+1. Navigate to ProfileScreen on the connected device (package: com.example.app)
+2. Take a screenshot
+3. Push it to our Figma file:
+   https://www.figma.com/file/ABC123/MyApp
+   Target page: "Implementation Snapshots"
+   Frame name: "ProfileScreen / Light / 2026-03-03"
+4. Repeat in dark mode (toggle via adb shell cmd uimode night yes)
+   Frame name: "ProfileScreen / Dark / 2026-03-03"
+5. Annotate any deviations from the adjacent design frame
+```
+
+**What gets created in Figma:**
+- A frame per screenshot, named by screen + theme + date
+- Frames are placed on the "Implementation Snapshots" page (created if missing)
+- Each frame is a flat image layer — not editable components (use `/figma-verify` for component-level comparison)
+
+---
+
+## Flow Capture
+
+Captures a multi-step user flow as an ordered sequence of frames — useful for stakeholder review, QA sign-off, and documenting interaction states.
+
+```
+/figma-sync flow checkout
+
+Capture the complete checkout flow:
+1. CartScreen (with 3 items in cart)
+2. CheckoutScreen (address form)
+3. PaymentScreen
+4. OrderConfirmationScreen
+
+Device: Pixel 8 Pro (connected via ADB)
+Package: com.example.app.debug
+
+Push to Figma:
+  File: https://www.figma.com/file/ABC123/MyApp
+  Page: "Flow Snapshots"
+  Auto-connect frames with arrows to show flow sequence
+
+Also capture:
+- Each screen in error state (if reachable)
+- Loading state for screens that have async data
+```
+
+---
+
+## Token Sync (Code → Figma)
+
+Reads token values from Kotlin source and updates the matching Figma Variables. Use this after a design token refactor to keep Figma in sync.
+
+```
+/figma-sync tokens
+
+Source of truth: our Kotlin token files
+  - core/ui/src/main/java/com/example/core/ui/theme/AppColors.kt
+  - core/ui/src/main/java/com/example/core/ui/theme/AppTypography.kt
+  - core/ui/src/main/java/com/example/core/ui/theme/AppSpacing.kt
+
+Target: Figma Variables in design system file
+  https://www.figma.com/file/DESIGN_SYSTEM/DesignSystem
+
+Mapping rules:
+  AppColors.primary (light)  → Figma Variable "Color/Brand/Primary" (Light mode value)
+  AppColors.primary (dark)   → Figma Variable "Color/Brand/Primary" (Dark mode value)
+  AppTypography.bodyMedium   → Figma Text Style "Typography/Body/Medium"
+  AppSpacing.md              → Figma Variable "Spacing/MD"
+
+Steps:
+1. Parse Kotlin token files to extract all values
+2. Show diff: what would change in Figma
+3. Wait for my confirmation before writing to Figma
+4. Apply approved changes via Figma MCP
+5. Report what was updated
+```
+
+**Token mapping conventions:**
+
+```
+Kotlin code               →   Figma Variable name
+─────────────────────────────────────────────────
+AppColors.primary              Color/Brand/Primary
+AppColors.onPrimary            Color/Brand/OnPrimary
+AppColors.background           Color/Surface/Background
+AppColors.surface              Color/Surface/Default
+AppColors.onSurface            Color/Surface/OnDefault
+AppColors.error                Color/Feedback/Error
+AppColors.success              Color/Feedback/Success
+AppSpacing.xs (4.dp)           Spacing/XS
+AppSpacing.sm (8.dp)           Spacing/SM
+AppSpacing.md (16.dp)          Spacing/MD
+AppSpacing.lg (24.dp)          Spacing/LG
+AppSpacing.xl (32.dp)          Spacing/XL
+```
+
+---
+
+## Component State Capture
+
+Captures a component in all its visual states and pushes each as a Figma frame — useful when updating an existing component.
+
+```
+/figma-sync component PrimaryButton
+
+Render PrimaryButton in all states on device or via Compose Preview screenshot:
+- Enabled (default text "Confirm")
+- Disabled
+- Loading (show progress indicator)
+- With leading icon
+
+For each state:
+1. Render using a test Activity or Compose Preview screenshot tool
+2. Push to Figma file: https://www.figma.com/file/ABC123/MyApp
+   Page: "Component Library"
+   Section: "PrimaryButton"
+
+Layout in Figma as: [Enabled] [Disabled] [Loading] [With Icon]
+with 16dp gap between each frame.
+```
+
+---
+
+## Sync Diff Report
+
+Before pushing anything to Figma, generate a diff to confirm what will change:
+
+```
+/figma-sync diff
+
+Compare:
+  Code tokens: core/ui/src/main/java/com/example/core/ui/theme/
+  Figma Variables: https://www.figma.com/file/DESIGN_SYSTEM/DesignSystem
+
+Output format:
+  MATCH    — value identical in code and Figma
+  ADD      — exists in code, missing from Figma
+  UPDATE   — exists in both, values differ
+  ORPHAN   — exists in Figma, not in code
+```
+
+**Example output:**
+```
+## Token Sync Diff — 2026-03-03
+
+MATCH    Color/Brand/Primary          #1A73E8  ✅
+UPDATE   Color/Brand/Secondary        Code: #34A853  Figma: #33A852  ← 1 digit off
+ADD      Color/Feedback/Success       #2E7D32  (missing from Figma)
+ADD      Color/Feedback/OnSuccess     #FFFFFF
+ORPHAN   Color/Brand/Tertiary         #FBBC04  (in Figma, not in code — was it removed?)
+MATCH    Spacing/MD                   16dp  ✅
+UPDATE   Spacing/LG                   Code: 24dp  Figma: 20dp
+
+Summary: 2 matches, 2 adds, 2 updates, 1 orphan
+Proceed with sync? (updates will overwrite Figma values)
+```
+
+Always review the diff before confirming — Claude will not push to Figma until you confirm.
+
+---
+
+## Notes
+
+- Screenshots pushed to Figma are **flat image layers** (not editable vector components). Use them for reference and QA, not as the source of truth for design.
+- Token sync is **one-directional** when running `/figma-sync tokens` (code → Figma). To pull from Figma to code, use `/figma-verify tokens`.
+- Always push to a dedicated page ("Implementation Snapshots", "Flow Snapshots") — never overwrite the design team's working frames.
+- Figma MCP requires authentication on first use: run `/mcp` in Claude Code and log in.
