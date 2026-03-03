@@ -1,0 +1,360 @@
+---
+name: write-tests
+description: Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases. Uses JUnit5 + Turbine + Mockk + Compose UI test.
+---
+
+When the user runs `/write-tests <target>`, generate a complete, production-quality test suite for the specified class or feature.
+
+## What to Generate
+
+For any target, produce:
+1. **Unit tests** for pure logic (use cases, mappers, utilities)
+2. **ViewModel tests** with Flow/StateFlow assertions via Turbine
+3. **Repository tests** with fakes for data sources
+4. **Compose UI tests** for screens and key components
+5. **Shared test utilities** (fakes, builders, rules)
+
+---
+
+## ViewModel Test Template
+
+```kotlin
+@ExtendWith(MainDispatcherExtension::class)
+class HomeViewModelTest {
+
+    // --- Dependencies (use mockk for collaborators) ---
+    private val getItemsUseCase: GetItemsUseCase = mockk()
+    private val analyticsTracker: AnalyticsTracker = mockk(relaxed = true)
+
+    // --- System Under Test ---
+    private lateinit var viewModel: HomeViewModel
+
+    @BeforeEach
+    fun setUp() {
+        viewModel = HomeViewModel(
+            getItemsUseCase = getItemsUseCase,
+            analyticsTracker = analyticsTracker,
+        )
+    }
+
+    // ─── Happy Path ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `given items available, uiState transitions Loading → Success`() = runTest {
+        val items = persistentListOf(TestData.item())
+        every { getItemsUseCase() } returns flowOf(items)
+
+        viewModel.load()
+
+        viewModel.uiState.test {
+            assertIs<HomeUiState.Loading>(awaitItem())
+            val success = awaitItem()
+            assertIs<HomeUiState.Success>(success)
+            assertEquals(items, success.items)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ─── Error Path ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `given network error, uiState transitions Loading → Error`() = runTest {
+        every { getItemsUseCase() } returns flow { throw IOException("No internet") }
+
+        viewModel.load()
+
+        viewModel.uiState.test {
+            assertIs<HomeUiState.Loading>(awaitItem())
+            val error = awaitItem()
+            assertIs<HomeUiState.Error>(error)
+            assertEquals("No internet", error.message)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ─── Events ────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `given item tapped, emits NavigateTo event with correct id`() = runTest {
+        val item = TestData.item(id = "item-42")
+        every { getItemsUseCase() } returns flowOf(persistentListOf(item))
+        viewModel.load()
+
+        viewModel.events.test {
+            viewModel.onItemTapped(item)
+            val event = awaitItem()
+            assertIs<HomeUiEvent.NavigateTo>(event)
+            assertEquals("item-42", event.itemId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    // ─── Edge Cases ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `given empty list, uiState is Success with empty items`() = runTest {
+        every { getItemsUseCase() } returns flowOf(persistentListOf())
+
+        viewModel.load()
+
+        viewModel.uiState.test {
+            skipItems(1) // Loading
+            val success = awaitItem()
+            assertIs<HomeUiState.Success>(success)
+            assertTrue(success.items.isEmpty())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `given multiple rapid taps, analytics tracked exactly once`() = runTest {
+        val item = TestData.item()
+        every { getItemsUseCase() } returns flowOf(persistentListOf(item))
+
+        repeat(3) { viewModel.onItemTapped(item) }
+
+        verify(exactly = 1) { analyticsTracker.track(any()) }
+    }
+}
+
+// JUnit5 Extension for Main dispatcher
+class MainDispatcherExtension : BeforeEachCallback, AfterEachCallback {
+    val testDispatcher = UnconfinedTestDispatcher()
+    override fun beforeEach(context: ExtensionContext) = Dispatchers.setMain(testDispatcher)
+    override fun afterEach(context: ExtensionContext) = Dispatchers.resetMain()
+}
+```
+
+---
+
+## Use Case Test Template
+
+```kotlin
+class GetItemsUseCaseTest {
+
+    // Prefer Fake over Mock for repositories
+    private val fakeRepository = FakeItemRepository()
+    private val useCase = GetItemsUseCase(fakeRepository)
+
+    @Test
+    fun `invoke emits items wrapped in Result success`() = runTest {
+        val items = listOf(TestData.item())
+        fakeRepository.setItems(items)
+
+        useCase().test {
+            val result = awaitItem()
+            assertTrue(result.isSuccess)
+            assertEquals(items, result.getOrThrow())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `given repository throws, invoke emits Result failure`() = runTest {
+        fakeRepository.setError(RuntimeException("DB unavailable"))
+
+        useCase().test {
+            val result = awaitItem()
+            assertTrue(result.isFailure)
+            assertIs<RuntimeException>(result.exceptionOrNull())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+}
+```
+
+---
+
+## Repository Test Template
+
+```kotlin
+class ItemRepositoryImplTest {
+
+    private val remoteSource: ItemRemoteDataSource = mockk()
+    private val localSource: ItemLocalDataSource = mockk()
+    @IoDispatcher private val testDispatcher = UnconfinedTestDispatcher()
+
+    private val repository = ItemRepositoryImpl(
+        remoteSource = remoteSource,
+        localSource = localSource,
+        ioDispatcher = testDispatcher,
+    )
+
+    @Test
+    fun `observeItems emits from local source and triggers remote refresh`() = runTest {
+        val localItems = listOf(TestData.itemEntity())
+        val remoteItems = listOf(TestData.itemDto())
+
+        every { localSource.observeAll() } returns flowOf(localItems)
+        coEvery { remoteSource.fetchItems() } returns remoteItems
+        coEvery { localSource.saveAll(any()) } just Runs
+
+        repository.observeItems().test {
+            assertEquals(localItems.map { it.toDomain() }, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify { remoteSource.fetchItems() }
+        coVerify { localSource.saveAll(remoteItems.map { it.toEntity() }) }
+    }
+
+    @Test
+    fun `given remote fetch fails, local data still emitted`() = runTest {
+        val localItems = listOf(TestData.itemEntity())
+        every { localSource.observeAll() } returns flowOf(localItems)
+        coEvery { remoteSource.fetchItems() } throws IOException("Network error")
+
+        repository.observeItems().test {
+            assertEquals(localItems.map { it.toDomain() }, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+}
+```
+
+---
+
+## Compose UI Test Template
+
+```kotlin
+@HiltAndroidTest
+class HomeScreenTest {
+
+    @get:Rule(order = 0) val hiltRule = HiltAndroidRule(this)
+    @get:Rule(order = 1) val composeRule = createAndroidComposeRule<MainActivity>()
+
+    @Inject lateinit var fakeRepository: FakeItemRepository
+
+    @Before
+    fun setUp() {
+        hiltRule.inject()
+    }
+
+    @Test
+    fun `shows loading indicator while data loads`() {
+        fakeRepository.setLoading()
+
+        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+
+        composeRule.onNodeWithContentDescription("Loading items").assertIsDisplayed()
+    }
+
+    @Test
+    fun `shows item list when data available`() {
+        fakeRepository.setItems(listOf(TestData.item(title = "Test Item")))
+
+        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+
+        composeRule.onNodeWithText("Test Item").assertIsDisplayed()
+    }
+
+    @Test
+    fun `shows error message and retry button on failure`() {
+        fakeRepository.setError(IOException("Network failure"))
+
+        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+
+        composeRule.onNodeWithText("Network failure").assertIsDisplayed()
+        composeRule.onNodeWithText("Retry").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping retry triggers reload`() {
+        fakeRepository.setError(IOException("Network failure"))
+
+        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+
+        composeRule.onNodeWithText("Retry").performClick()
+
+        verify { fakeRepository.wasRefreshed() }
+    }
+
+    @Test
+    fun `tapping item navigates to detail with correct id`() {
+        val item = TestData.item(id = "item-1", title = "My Item")
+        fakeRepository.setItems(listOf(item))
+
+        var navigatedToId: String? = null
+        composeRule.setContent {
+            AppTheme {
+                HomeScreen(onNavigateToDetail = { id -> navigatedToId = id })
+            }
+        }
+
+        composeRule.onNodeWithText("My Item").performClick()
+        assertEquals("item-1", navigatedToId)
+    }
+}
+```
+
+---
+
+## Fake Implementation Template
+
+```kotlin
+// :core:testing — shared across all test source sets
+class FakeItemRepository : ItemRepository {
+
+    private val _items = MutableStateFlow<List<Item>>(emptyList())
+    private var error: Throwable? = null
+    private var refreshCount = 0
+
+    override fun observeItems(): Flow<List<Item>> = flow {
+        error?.let { throw it }
+        emitAll(_items)
+    }
+
+    override suspend fun refreshItems(): Result<Unit> {
+        refreshCount++
+        return error?.let { Result.failure(it) } ?: Result.success(Unit)
+    }
+
+    // Test helpers
+    fun setItems(items: List<Item>) { error = null; _items.value = items }
+    fun setError(throwable: Throwable) { error = throwable }
+    fun setLoading() { _items.value = emptyList() /* loading state */ }
+    fun wasRefreshed() = refreshCount > 0
+}
+```
+
+---
+
+## Test Data Builders
+
+```kotlin
+// :core:testing/TestData.kt
+object TestData {
+
+    fun item(
+        id: String = "test-item-${UUID.randomUUID()}",
+        title: String = "Test Item",
+        description: String = "Test description",
+        isActive: Boolean = true,
+    ) = Item(id = id, title = title, description = description, isActive = isActive)
+
+    fun user(
+        id: String = "test-user-${UUID.randomUUID()}",
+        displayName: String = "Test User",
+        email: String = "test@example.com",
+        avatarUrl: String? = null,
+    ) = UserProfile(id = id, displayName = displayName, email = email, avatarUrl = avatarUrl)
+
+    fun itemEntity(id: String = "entity-id") =
+        ItemEntity(id = id, title = "Entity Title", createdAt = System.currentTimeMillis())
+
+    fun itemDto(id: String = "dto-id") =
+        ItemDto(id = id, title = "DTO Title", createdAt = "2024-01-01T00:00:00Z")
+}
+```
+
+---
+
+## Coverage Targets Enforced
+
+| Layer | Minimum Coverage | Focus Areas |
+|---|---|---|
+| Use cases | 100% | All branches of business logic |
+| ViewModels | 90% | All states, all events, all error paths |
+| Repositories | 80% | Cache strategy, error handling, offline |
+| Composables | Key flows | Loading/success/error states, user interactions |
+| Mappers/Utils | 100% | Edge cases, null handling, boundary values |
