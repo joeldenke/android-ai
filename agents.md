@@ -88,8 +88,8 @@ Reusable slash commands invoked with `/skill-name [args]`.
 
 | Skill | Command | What it does |
 |---|---|---|
-| Gradle | `/gradle [task]` | Build health check, optimize, manage deps, R8, version catalog, convention plugins |
-| GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
+| Gradle | `/gradle [task]` | Build health check, optimize, manage deps, R8, version catalog, convention plugins, `AndroidApplicationBadgingConventionPlugin` for device availability guard |
+| GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency graph submission (Dependabot), dependency review, app badging CI check, `gradle/actions` v5 SHA-pinned caching |
 
 ### Device & QA
 
@@ -204,8 +204,13 @@ Automated quality gates that run during Claude Code lifecycle events.
 - R8 full mode for release builds (`android.enableR8.fullMode=true`)
 - Baseline profiles for startup performance
 - Use `lint { abortOnError = true }` in CI
-- `gradle/actions/setup-gradle` for all GitHub Actions workflows (not manual cache steps)
-- Pin all GHA action references to full SHA (never mutable tags)
+- `gradle/actions/setup-gradle` **v5** (`0723195856401067f7a2779048b490ace7a47d7c`) for all GitHub Actions — owns all Gradle caching; do **not** add `cache: gradle` in `setup-java`
+- Wrapper validation built into `setup-gradle` v5 by default — no separate `wrapper-validation` step needed
+- `cache-encryption-key` required to protect configuration cache from leaking secrets
+- `dependency-graph: generate-and-submit` on main-branch builds enables Dependabot vulnerability alerts across all transitive dependencies
+- Pin **all** GHA action references to full 40-character SHA (never mutable tags)
+- App badging (`aapt2 dump badging`) — use `AndroidApplicationBadgingConventionPlugin` to register `generateXBadging` / `updateXBadging` / `checkXBadging` tasks; commit golden file `app/badging/<variant>.txt`; CI runs `checkReleaseBadging` to fail PRs that silently add hardware feature requirements (camera, telephony, GPS) that reduce availability on tablets, TVs, Wear OS, and foldables
+- Override library-introduced implicit feature requirements in `AndroidManifest.xml`: `<uses-feature android:name="..." android:required="false" />`
 
 ### Device & QA
 - Use `/adb` for device inspection, logcat analysis, and performance snapshots
