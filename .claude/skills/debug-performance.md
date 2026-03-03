@@ -1,0 +1,317 @@
+---
+name: debug-performance
+description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type.
+---
+
+When the user runs `/debug-performance <screen or area>`, apply the following diagnostic framework.
+
+## Performance Diagnostic Framework
+
+### Phase 1: Identify the Symptom
+Ask the user (or infer from context):
+- **Jank** — frames dropping below 60fps / 90fps / 120fps during scroll or animation?
+- **Slow startup** — cold start > 500ms, or blank screen flash?
+- **Excessive recomposition** — Compose doing too much work on the UI thread?
+- **Memory** — OOM crashes, memory growing unbounded, GC pressure?
+- **Battery** — background work running when it shouldn't?
+
+---
+
+## Recomposition Debugging
+
+### Step 1: Enable Compose Compiler Metrics
+```kotlin
+// In build.gradle.kts of the feature module
+android {
+    kotlinOptions {
+        freeCompilerArgs += listOf(
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=${project.buildDir}/compose_metrics",
+            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=${project.buildDir}/compose_metrics",
+        )
+    }
+}
+// After build, inspect: build/compose_metrics/*.txt
+// Look for: "unstable" classes, "skippable: false" composables
+```
+
+### Step 2: Recomposition Highlighter (Android Studio)
+```
+Layout Inspector → Enable "Show Recomposition Counts"
+Any composable recomposing > 5x per second is suspicious
+```
+
+### Step 3: Fix Unstable Types
+
+#### Problem: `List<T>` is unstable
+```kotlin
+// ❌ Causes recomposition every time parent recomposes
+@Composable
+fun ItemList(items: List<Item>) { ... }
+
+// ✅ Fix 1: Kotlinx Immutable Collections
+@Composable
+fun ItemList(items: ImmutableList<Item>) { ... }
+
+// In ViewModel:
+val uiState = MutableStateFlow(
+    HomeUiState(items = persistentListOf()) // kotlinx.collections.immutable
+)
+
+// ✅ Fix 2: Wrap in @Immutable data class
+@Immutable
+data class HomeUiState(val items: List<Item>)
+// Now the whole UiState is stable even though List<Item> isn't
+```
+
+#### Problem: Lambda instability
+```kotlin
+// ❌ New lambda instance created on every recomposition
+@Composable
+fun ParentScreen(viewModel: MyViewModel = hiltViewModel()) {
+    ChildCard(
+        onClick = { viewModel.onItemClicked(it) }  // ← new instance each recomposition
+    )
+}
+
+// ✅ Fix: method reference (stable if ViewModel is stable)
+ChildCard(onClick = viewModel::onItemClicked)
+
+// ✅ Fix 2: remember the lambda
+val onClick = remember(viewModel) { { item: Item -> viewModel.onItemClicked(item) } }
+ChildCard(onClick = onClick)
+```
+
+#### Problem: Unstable data class
+```kotlin
+// ❌ Compiler can't prove this is stable
+data class UserProfile(
+    val id: String,
+    val createdAt: java.util.Date,  // ← mutable type, unstable
+)
+
+// ✅ Fix: use java.time.Instant (stable) or mark @Immutable
+@Immutable
+data class UserProfile(
+    val id: String,
+    val createdAt: Instant,  // kotlinx-datetime or java.time
+)
+```
+
+### Step 4: `derivedStateOf` for Expensive Derived State
+```kotlin
+// ❌ isScrolled recalculates AND causes recomposition on every scroll pixel
+@Composable
+fun AppBar(listState: LazyListState) {
+    val isScrolled = listState.firstVisibleItemIndex > 0  // ← recomposes every pixel
+    AnimatedVisibility(visible = isScrolled) { ... }
+}
+
+// ✅ derivedStateOf: only recomposes when boolean value CHANGES
+@Composable
+fun AppBar(listState: LazyListState) {
+    val isScrolled by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+    }
+    AnimatedVisibility(visible = isScrolled) { ... }
+}
+```
+
+### Step 5: `key {}` for Lazy Lists
+```kotlin
+// ❌ Missing key — Compose recomposes every item on list change
+LazyColumn {
+    items(users) { user ->
+        UserCard(user)
+    }
+}
+
+// ✅ With stable key — only changed items recompose
+LazyColumn {
+    items(users, key = { it.id }) { user ->
+        UserCard(user, modifier = Modifier.animateItemPlacement())
+    }
+}
+```
+
+---
+
+## Startup Performance
+
+### Cold Start Checklist
+```kotlin
+// 1. Measure baseline
+// adb shell am start-activity -W -n com.example/.MainActivity
+// WaitTime, ThisTime, TotalTime
+
+// 2. Use App Startup library for initializer ordering
+class TimberInitializer : Initializer<Unit> {
+    override fun create(context: Context) { Timber.plant(Timber.DebugTree()) }
+    override fun dependencies() = emptyList<Class<out Initializer<*>>>()
+}
+
+// 3. Defer non-critical initialization
+class MyApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Critical only
+        DaggerAppComponent.create().inject(this)
+
+        // Defer analytics, crash reporting, etc.
+        lifecycleScope.launch(Dispatchers.Default) {
+            initAnalytics()
+            initCrashReporting()
+        }
+    }
+}
+
+// 4. Baseline Profiles — pre-compile hot paths
+// benchmark/src/main/java/StartupBenchmark.kt
+@RunWith(AndroidJUnit4::class)
+class StartupBenchmark {
+    @get:Rule val benchmarkRule = MacrobenchmarkRule()
+
+    @Test
+    fun startup() = benchmarkRule.measureRepeated(
+        packageName = "com.example.app",
+        metrics = listOf(StartupTimingMetric()),
+        iterations = 5,
+        startupMode = StartupMode.COLD,
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+}
+```
+
+---
+
+## Memory Leak Detection
+
+### Patterns That Cause Leaks
+```kotlin
+// ❌ Holding Activity reference in long-lived object
+class BadManager(private val activity: Activity) { ... }  // ← memory leak
+
+// ✅ Use ApplicationContext or abstract the dependency
+class GoodManager(private val context: Context) {
+    // context is ApplicationContext from Hilt — not an Activity
+}
+
+// ❌ Anonymous listener not removed
+class BadFragment : Fragment() {
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        someManager.addListener(object : Listener {  // ← anonymous, never removed!
+            override fun onEvent() { updateUi() }
+        })
+    }
+}
+
+// ✅ Use DisposableEffect in Compose or remove in onDestroyView
+DisposableEffect(someManager) {
+    val listener = Listener { updateUi() }
+    someManager.addListener(listener)
+    onDispose { someManager.removeListener(listener) }
+}
+
+// ❌ Coroutine launched with lifecycleScope but collects forever
+lifecycleScope.launch {
+    flow.collect { ... }  // ← runs even when UI is in background
+}
+
+// ✅ repeatOnLifecycle stops collection when lifecycle is below STARTED
+lifecycleScope.launch {
+    repeatOnLifecycle(Lifecycle.State.STARTED) {
+        flow.collect { ... }
+    }
+}
+```
+
+### LeakCanary Integration
+```kotlin
+// build.gradle.kts
+debugImplementation("com.squareup.leakcanary:leakcanary-android:2.x")
+
+// Automatically detects common Android leaks — no configuration needed
+// Custom detection:
+AppWatcher.objectWatcher.expectWeaklyReachable(myObject, "Reason it should be GC'd")
+```
+
+---
+
+## Rendering & Overdraw
+
+### Overdraw Reduction
+```kotlin
+// ❌ Unnecessary background on nested composables
+Column(modifier = Modifier.background(Color.White)) {
+    Card(
+        modifier = Modifier.background(Color.White)  // ← overdraw; Card already has background
+    ) { ... }
+}
+
+// ✅ Remove redundant backgrounds
+Column {  // let the window background show
+    Card { ... }
+}
+
+// ❌ Reading state in composition triggers recomposition
+@Composable
+fun ScrollHeader(scrollState: ScrollState) {
+    val alpha = scrollState.value / 100f  // ← reading scroll in composition
+    Box(modifier = Modifier.alpha(alpha))
+}
+
+// ✅ Read in draw phase — no recomposition triggered
+@Composable
+fun ScrollHeader(scrollState: ScrollState) {
+    Box(
+        modifier = Modifier.graphicsLayer {
+            alpha = scrollState.value / 100f  // ← read in draw phase
+        }
+    )
+}
+```
+
+### Image Performance
+```kotlin
+// ❌ Loading full-res image into tiny thumbnail
+AsyncImage(
+    model = "https://example.com/photo_4000x3000.jpg",  // ← huge image for 48dp thumbnail
+    modifier = Modifier.size(48.dp),
+)
+
+// ✅ Size hint to Coil
+AsyncImage(
+    model = ImageRequest.Builder(LocalContext.current)
+        .data("https://example.com/photo_4000x3000.jpg")
+        .size(Size(96, 96))  // 2x for density; Coil downsamples on decode
+        .memoryCachePolicy(CachePolicy.ENABLED)
+        .diskCachePolicy(CachePolicy.ENABLED)
+        .build(),
+    modifier = Modifier.size(48.dp),
+)
+```
+
+---
+
+## Performance Report Format
+
+```markdown
+## Performance Audit: <Screen Name>
+
+### Findings
+
+#### 🔴 Critical — [PERF-001] Excessive recomposition in ItemList
+**Root cause:** `List<Item>` parameter is unstable; recomposes on every parent recomposition
+**Measured impact:** ~120 recompositions/second during scroll
+**Fix:** Replace `List<Item>` with `ImmutableList<Item>` from kotlinx.collections.immutable
+**Files:** `feature/home/HomeScreen.kt:45`
+
+#### 🟠 Major — [PERF-002] State read in composition triggers layout recomposition
+**Root cause:** `scrollState.value` read inside `@Composable` body
+**Fix:** Move to `graphicsLayer {}` or `drawBehind {}` (draw phase)
+
+#### 🟡 Minor — [PERF-003] Missing `key` in LazyColumn
+**Impact:** Full list recomposition on any data change
+**Fix:** Add `key = { item.id }` to `items()` call
+```

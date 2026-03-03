@@ -1,0 +1,8 @@
+{
+  "name": "android-ai",
+  "description": "Expert-level Android development agents, skills, and hooks for Claude Code",
+  "version": "1.0.0",
+  "author": "joeldenke",
+  "repository": "https://github.com/joeldenke/android-ai",
+  "keywords": ["android", "kotlin", "jetpack-compose", "mvvm", "clean-architecture", "coroutines"]
+}

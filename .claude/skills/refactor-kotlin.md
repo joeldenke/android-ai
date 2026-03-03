@@ -1,0 +1,290 @@
+---
+name: refactor-kotlin
+description: Modernizes Kotlin code to idiomatic, production-quality Kotlin — eliminates anti-patterns, applies coroutines/Flow, enforces nullability safety, and upgrades language features. Shows before/after for every change.
+---
+
+When the user runs `/refactor-kotlin <target>`, analyze the code and apply all applicable transformations. Show a **before/after diff** with explanation for each change.
+
+## Transformation Catalog
+
+### 1. Nullability Safety
+```kotlin
+// ❌ Before: non-null assertion
+val name = user!!.name
+
+// ✅ After: safe call with Elvis
+val name = user?.name ?: "Anonymous"
+
+// ❌ Before: verbose null check
+if (user != null) {
+    doSomethingWith(user)
+}
+
+// ✅ After: safe call or let
+user?.let { doSomethingWith(it) }
+
+// ❌ Before: lateinit for nullable
+lateinit var user: User?
+
+// ✅ After: nullable with null initialization
+var user: User? = null
+
+// ❌ Before: Java-style cast
+val admin = user as Admin
+
+// ✅ After: safe cast with null handling
+val admin = user as? Admin ?: return
+```
+
+### 2. Collections & Iteration
+```kotlin
+// ❌ Before: indexed loop
+for (i in 0 until list.size) {
+    process(list[i])
+}
+
+// ✅ After: for-in or forEach
+list.forEach { process(it) }
+
+// ❌ Before: manual filter + first
+var found: Item? = null
+for (item in items) {
+    if (item.id == id) { found = item; break }
+}
+
+// ✅ After: firstOrNull
+val found = items.firstOrNull { it.id == id }
+
+// ❌ Before: isEmpty negation
+if (!list.isEmpty()) { ... }
+
+// ✅ After: isNotEmpty
+if (list.isNotEmpty()) { ... }
+
+// ❌ Before: size check
+if (list.size > 0) { ... }
+
+// ✅ After: isNotEmpty
+if (list.isNotEmpty()) { ... }
+
+// ❌ Before: mutable list built with add
+val result = mutableListOf<String>()
+for (item in items) {
+    if (item.active) result.add(item.name)
+}
+
+// ✅ After: filter + map
+val result = items.filter { it.active }.map { it.name }
+```
+
+### 3. Scope Functions
+```kotlin
+// ❌ Before: verbose object initialization
+val paint = Paint()
+paint.color = Color.RED
+paint.strokeWidth = 2f
+paint.isAntiAlias = true
+
+// ✅ After: apply
+val paint = Paint().apply {
+    color = Color.RED
+    strokeWidth = 2f
+    isAntiAlias = true
+}
+
+// ❌ Before: let result discarded, then return object
+val processed = item.also { it.validate() }
+return processed
+
+// ✅ After: just return directly if no transformation
+return item.also { it.validate() }
+
+// ❌ Before: run used incorrectly (not computing a value)
+user.run { println(name) }
+
+// ✅ After: with for non-nullable object, multiple operations
+with(user) { println(name) }
+```
+
+### 4. Try-Catch → runCatching
+```kotlin
+// ❌ Before: verbose try-catch returning null
+fun parseDate(input: String): Date? {
+    return try {
+        dateFormat.parse(input)
+    } catch (e: ParseException) {
+        null
+    }
+}
+
+// ✅ After: runCatching
+fun parseDate(input: String): Date? =
+    runCatching { dateFormat.parse(input) }.getOrNull()
+
+// ❌ Before: try-catch wrapping entire function body
+suspend fun fetchUser(id: String): Result<User> {
+    return try {
+        Result.success(api.getUser(id))
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+// ✅ After: runCatching
+suspend fun fetchUser(id: String): Result<User> =
+    runCatching { api.getUser(id) }
+```
+
+### 5. Callbacks → Coroutines/Flow
+```kotlin
+// ❌ Before: callback-based API
+fun loadUser(id: String, callback: (User?, Error?) -> Unit) {
+    api.getUser(id) { user, error ->
+        callback(user, error)
+    }
+}
+
+// ✅ After: suspending function
+suspend fun loadUser(id: String): Result<User> =
+    suspendCancellableCoroutine { continuation ->
+        val call = api.getUser(id)
+        call.enqueue(object : Callback<User> {
+            override fun onResponse(call: Call<User>, response: Response<User>) {
+                if (response.isSuccessful) {
+                    continuation.resume(Result.success(response.body()!!))
+                } else {
+                    continuation.resume(Result.failure(HttpException(response)))
+                }
+            }
+            override fun onFailure(call: Call<User>, t: Throwable) {
+                continuation.resumeWithException(t)
+            }
+        })
+        continuation.invokeOnCancellation { call.cancel() }
+    }
+
+// ❌ Before: listener/observer pattern
+class LocationTracker {
+    private val listeners = mutableListOf<(Location) -> Unit>()
+    fun addListener(l: (Location) -> Unit) { listeners.add(l) }
+    fun removeListener(l: (Location) -> Unit) { listeners.remove(l) }
+}
+
+// ✅ After: callbackFlow
+fun LocationTracker.asFlow(): Flow<Location> = callbackFlow {
+    val listener: (Location) -> Unit = { trySend(it) }
+    addListener(listener)
+    awaitClose { removeListener(listener) }
+}
+```
+
+### 6. LiveData → StateFlow/SharedFlow
+```kotlin
+// ❌ Before: LiveData
+class HomeViewModel : ViewModel() {
+    private val _items = MutableLiveData<List<Item>>()
+    val items: LiveData<List<Item>> = _items
+}
+
+// ✅ After: StateFlow
+class HomeViewModel : ViewModel() {
+    private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+}
+```
+
+### 7. Sealed Class Upgrades
+```kotlin
+// ❌ Before: enum with data (can't hold different data per variant)
+enum class UiState { LOADING, SUCCESS, ERROR }
+
+// ❌ Before: sealed class (prefer sealed interface for flexibility)
+sealed class Result<T> {
+    class Success<T>(val data: T) : Result<T>()
+    class Error<T>(val e: Exception) : Result<T>()
+}
+
+// ✅ After: sealed interface
+sealed interface Result<out T> {
+    data class Success<T>(val data: T) : Result<T>
+    data class Error(val exception: Throwable) : Result<Nothing>
+    data object Loading : Result<Nothing>
+}
+```
+
+### 8. String Operations
+```kotlin
+// ❌ Before: concatenation
+val message = "Hello, " + userName + "! You have " + count.toString() + " messages."
+
+// ✅ After: string template
+val message = "Hello, $userName! You have $count messages."
+
+// ❌ Before: StringBuilder for simple multiline
+val sb = StringBuilder()
+sb.append("Name: ")
+sb.append(name)
+sb.append("\n")
+
+// ✅ After: trimIndent triple-quote string
+val text = """
+    Name: $name
+""".trimIndent()
+```
+
+### 9. Java Static → Top-Level Functions
+```kotlin
+// ❌ Before: Java-style static utility class
+object Utils {
+    @JvmStatic
+    fun formatDate(date: Date): String = DateFormat.getDateInstance().format(date)
+
+    @JvmStatic
+    fun isValidEmail(email: String): Boolean = Patterns.EMAIL_ADDRESS.matcher(email).matches()
+}
+
+// ✅ After: top-level functions in a named file
+// DateUtils.kt
+fun Date.toFormattedString(): String = DateFormat.getDateInstance().format(this)
+
+// ValidationUtils.kt
+fun String.isValidEmail(): Boolean = Patterns.EMAIL_ADDRESS.matcher(this).matches()
+```
+
+### 10. Delegation Patterns
+```kotlin
+// ❌ Before: manual delegation boilerplate
+class LoggingRepository(private val delegate: UserRepository) : UserRepository {
+    override suspend fun getUser(id: String) = delegate.getUser(id)
+    override suspend fun saveUser(user: User) = delegate.saveUser(user)
+    override fun observeUser(id: String) = delegate.observeUser(id)
+    // ... repeated for every method
+}
+
+// ✅ After: interface delegation
+class LoggingRepository(
+    private val delegate: UserRepository,
+) : UserRepository by delegate {
+    // Only override methods you want to intercept
+    override suspend fun saveUser(user: User) {
+        Timber.d("Saving user: ${user.id}")
+        delegate.saveUser(user)
+    }
+}
+```
+
+## How to Present Refactoring Results
+
+For each transformation:
+1. Show `❌ Before` code with the problem described
+2. Show `✅ After` code with the improvement
+3. Name the **Kotlin feature** being applied
+4. Explain **why** it's better (readability, safety, performance, testability)
+5. Note any **behavior changes** (even if minor)
+
+## Prioritization Order
+
+1. 🔴 Safety: `!!` operators, swallowed exceptions, `GlobalScope`
+2. 🟠 Correctness: callback → coroutine, LiveData → StateFlow
+3. 🟡 Idioms: scope functions, collection operations, string templates
+4. 🟢 Style: expression bodies, trailing commas, naming

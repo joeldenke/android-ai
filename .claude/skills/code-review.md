@@ -1,0 +1,157 @@
+---
+name: code-review
+description: Deep code review against all Android best-practice rules — architecture, Kotlin idioms, Compose correctness, coroutines, performance, security, and testability. Produces a structured report with severity levels.
+---
+
+When the user runs `/code-review [file, directory, or PR description]`, perform a thorough review using the following checklist. Output a structured report.
+
+## Review Report Format
+
+```
+## Code Review Report
+**File(s):** <path>
+**Reviewer:** Android AI Code Review
+**Date:** <today>
+
+### Critical 🔴  (must fix before merge)
+### Major 🟠    (should fix; creates bugs or tech debt)
+### Minor 🟡    (improve when convenient; style/readability)
+### Praise ✅   (good patterns worth calling out)
+```
+
+---
+
+## Review Checklist
+
+### Architecture & Layering
+- [ ] Domain layer has zero Android framework imports (`Context`, `LiveData`, `View`, `Room`)
+- [ ] Feature modules don't depend on other feature modules (check `:feature:x → :feature:y` imports)
+- [ ] Business logic is NOT in Composables, Activities, or Fragments
+- [ ] Repository interface is in `:domain`, implementation in `:data`
+- [ ] ViewModel only uses `viewModelScope`, never creates its own `Job`
+- [ ] Navigation arguments are primitive IDs only — no full objects passed between destinations
+
+### Kotlin Idioms
+- [ ] No `!!` non-null assertion operators — flag each one as Critical
+- [ ] `var` usage is justified — immutability enforced with `val`
+- [ ] Scope functions used correctly: `let`/`apply`/`also`/`run`/`with` semantics match intent
+- [ ] No static utility singletons when top-level functions or DI would serve better
+- [ ] `data class` for models; `sealed interface` for state/events (not `sealed class` unless needed)
+- [ ] No Java-style builder pattern when `data class` + `copy()` applies
+- [ ] `runCatching {}` preferred over bare `try-catch` for functional error handling
+- [ ] No `lateinit var` for nullable types (use `var x: Type? = null` instead)
+- [ ] Collections use idiomatic operations: `filter`, `map`, `firstOrNull`, not indexed loops
+- [ ] No string concatenation — use string templates
+- [ ] Trailing commas on multi-line declarations (Kotlin convention)
+
+### Coroutines & Flow
+- [ ] No `GlobalScope` usage anywhere
+- [ ] Dispatchers are injected, not hardcoded (`Dispatchers.IO` not used inside class bodies directly)
+- [ ] `withContext(dispatcher)` used for switching — not `launch(Dispatchers.IO)`
+- [ ] `StateFlow` for UI state, `SharedFlow(replay=0)` for one-shot events
+- [ ] `collectAsStateWithLifecycle()` used in Compose (not `collectAsState()`)
+- [ ] `repeatOnLifecycle(STARTED)` used in non-Compose lifecycle observers
+- [ ] `CancellationException` never caught and swallowed
+- [ ] Error handling: `catch {}` operator on Flow, `CoroutineExceptionHandler` on `launch {}`
+- [ ] `callbackFlow` has `awaitClose {}` with proper cleanup
+- [ ] No `runBlocking` in production code
+- [ ] `SupervisorJob` used when sibling failure isolation is needed
+- [ ] Flows are cancelled/unsubscribed correctly (no memory leaks)
+
+### Jetpack Compose (Slack Rules)
+- [ ] **compose:modifier-missing-check** — every content-emitting composable has `modifier: Modifier = Modifier`
+- [ ] **compose:modifier-not-used-at-root** — `modifier` applied only at root layout
+- [ ] **compose:modifier-reused-check** — same `Modifier` instance not applied to multiple nodes
+- [ ] **compose:naming-check** — composable functions are PascalCase
+- [ ] **compose:parameter-ordering** — required → optional → modifier → trailing lambda
+- [ ] **compose:preview-naming** — preview functions end with `Preview`
+- [ ] **compose:preview-public** — preview functions are `private` or `internal`
+- [ ] **compose:remember-missing-check** — objects created inside composables are `remember`ed
+- [ ] **compose:unstable-collections** — `List<T>`/`Map`/`Set` params replaced with `ImmutableList<T>` etc.
+- [ ] **compose:vm-forwarding-check** — ViewModel not passed as composable parameter
+- [ ] **compose:compositionlocal-allowlist** — `CompositionLocal` only for cross-cutting concerns
+- [ ] **compose:m2-api-check** — no `androidx.compose.material` (M2) imports
+- [ ] **compose:content-emitter-returning-values-check** — composables return `Unit`
+- [ ] **compose:multiple-emitters-check** — single root layout per composable
+- [ ] **compose:mutable-params-check** — no `var` parameters in composables
+- [ ] State hoisting — leaf composables are stateless; state lives at screen level or VM
+- [ ] `derivedStateOf` used for expensive derived state calculations
+- [ ] `key {}` provided in every `LazyColumn`/`LazyRow` item
+- [ ] Side effects in correct handler: `LaunchedEffect`/`DisposableEffect`/`SideEffect`
+- [ ] Accessibility: `contentDescription` on images/icons; `Role` on interactive elements
+- [ ] Touch targets ≥ 48dp
+- [ ] Custom modifiers use `Modifier.Node` API, not `Modifier.composed`
+
+### Dependency Injection (Hilt)
+- [ ] `@HiltViewModel` on every ViewModel
+- [ ] Repositories and DataSources are `@Singleton`
+- [ ] No `Context` injected into ViewModel (use `@ApplicationContext` or abstract it)
+- [ ] Hilt modules use `@Binds` for interfaces, `@Provides` for third-party types
+- [ ] No manual `Hilt.inject()` calls outside Activity/Fragment/Service/BroadcastReceiver
+
+### Security
+- [ ] No secrets, API keys, or tokens in source code
+- [ ] User input validated and sanitized before use in queries
+- [ ] No SQL string interpolation (Room parameterized queries only)
+- [ ] No logging of PII (names, emails, tokens, passwords)
+- [ ] HTTPS enforced — no `http://` URLs for sensitive endpoints
+- [ ] `SharedPreferences` not used for sensitive data (use `EncryptedSharedPreferences`)
+- [ ] No `android:debuggable="true"` in production manifest
+
+### Performance
+- [ ] No heavy computation on Main thread (use `withContext(Dispatchers.Default)`)
+- [ ] No unnecessary `object` allocations inside frequently-called composables
+- [ ] Images loaded via Coil/Glide with proper sizing — no full-resolution decodes
+- [ ] `LazyColumn`/`LazyRow` used for lists > ~20 items (not `Column` in `verticalScroll`)
+- [ ] Baseline Profiles defined for startup-critical flows
+- [ ] No memory leaks: no anonymous callbacks holding Activity/View references after lifecycle end
+- [ ] `rememberSaveable` used for state that must survive process death
+
+### Testing & Testability
+- [ ] Classes accept interfaces, not concrete implementations (enabling fakes)
+- [ ] Dispatchers are injectable (enabling `TestCoroutineDispatcher`)
+- [ ] No static state that persists between tests
+- [ ] Test coverage for: happy path, error path, edge cases
+- [ ] `Turbine` used for Flow/StateFlow testing (not `first()` or `take(1).toList()`)
+- [ ] Mockk used, not Mockito
+- [ ] Tests are deterministic — no `Thread.sleep()`, no time-dependent assertions without virtual clock
+
+### Build & Tooling
+- [ ] Kotlin DSL (`build.gradle.kts`) — no Groovy DSL
+- [ ] All versions in `libs.versions.toml`
+- [ ] No hardcoded version numbers in build files
+- [ ] `explicitApi()` mode enabled for library/SDK modules
+- [ ] No `implementation(project(":feature:x"))` in another feature module
+
+---
+
+## Output Examples
+
+### Critical Finding
+```
+🔴 CRITICAL — UserViewModel.kt:34
+`!!` non-null assertion on `savedStateHandle["userId"]`
+This will crash if the argument is missing from the navigation backstack.
+Fix: `val userId: String = checkNotNull(savedStateHandle["userId"]) { "userId is required" }`
+```
+
+### Major Finding
+```
+🟠 MAJOR — HomeScreen.kt:12
+ViewModel passed directly to `HomeContent` composable.
+Violates Slack compose:vm-forwarding-check — makes composable untestable and unstable.
+Fix: Extract state and callbacks from ViewModel at screen level; pass plain data to HomeContent.
+```
+
+### Minor Finding
+```
+🟡 MINOR — UserRepository.kt:55
+`if (!list.isEmpty())` — use `list.isNotEmpty()` (Kotlin idiom)
+```
+
+### Praise
+```
+✅ PRAISE — UserRepositoryImpl.kt
+Excellent offline-first pattern: emits cached data immediately via Room Flow,
+then triggers refresh in the background. Single source of truth preserved.
+```
