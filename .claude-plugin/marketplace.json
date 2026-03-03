@@ -1,0 +1,17 @@
+{
+  "marketplace": {
+    "name": "Android AI",
+    "description": "Expert-level Android development agents, skills, and hooks for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "android-ai",
+      "description": "Full Android dev plugin — agents, skills, and hooks encoding Google, JetBrains, and Slack Compose best practices",
+      "version": "1.0.0",
+      "source": {
+        "type": "github",
+        "repo": "joeldenke/android-ai"
+      }
+    }
+  ]
+}

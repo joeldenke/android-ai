@@ -4,11 +4,17 @@ Expert-level Android development agents, skills, and hooks for Claude Code.
 
 ## Install
 
-Copy the plugin into your Android project:
+### Via Claude Code plugin marketplace (recommended)
+
+```bash
+/plugin marketplace add joeldenke/android-ai
+/plugin install android-ai
+```
+
+### Manual fallback
 
 ```bash
 cd your-android-project
-
 git clone https://github.com/joeldenke/android-ai /tmp/android-ai
 cp -r /tmp/android-ai/.claude .
 cp /tmp/android-ai/CLAUDE.md .
@@ -21,7 +27,7 @@ Then open with Claude Code:
 claude .
 ```
 
-That's it. The agents, skills, and hooks are active automatically.
+The agents, skills, and hooks are active automatically.
 
 ---
 
