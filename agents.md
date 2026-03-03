@@ -5,17 +5,65 @@
 
 ---
 
+## Agent Team Topology
+
+```
+                      ┌─────────────────────┐
+                      │    @android-lead     │  ← Principal Engineer
+                      │  model: opus         │    Coordinator & synthesizer
+                      │  memory: project     │    Spawns all sub-agents
+                      └──────────┬──────────┘
+                                 │ delegates via Agent() tool
+              ┌──────────────────┼──────────────────────┐
+              │                  │                       │
+   ┌──────────▼─────────┐  ┌─────▼──────────┐  ┌───────▼────────────┐
+   │ @android-architect │  │ @kotlin-expert │  │  @compose-expert   │
+   │ model: sonnet      │  │ model: sonnet  │  │  model: sonnet     │
+   │ memory: project    │  │                │  │                    │
+   └────────────────────┘  └────────────────┘  └────────────────────┘
+              │                                          │
+   ┌──────────▼─────────────────────────────────────────▼───────────┐
+   │              @coroutine-flow-expert                             │
+   │              model: sonnet                                      │
+   └─────────────────────────────────────────────────────────────────┘
+                                 │
+   ┌─────────────────────────────▼───────────────────────────────────┐
+   │                    @testing-engineer                            │
+   │                    model: sonnet                                │
+   └─────────────────────────────────────────────────────────────────┘
+```
+
+**Delegation flow:** `android-lead` coordinates work → spawns specialists in parallel or sequence → synthesizes their outputs into a unified response.
+
+---
+
 ## Agents
 
 Specialist sub-agents invoked with `@agent-name`. Each is a deep expert in its domain.
 
-| Agent | Trigger | Role |
-|---|---|---|
-| `@android-architect` | Architecture decisions, module design, layering | Senior Android Architect |
-| `@kotlin-expert` | Kotlin idioms, coroutines, Flow, language features | Principal Kotlin Engineer |
-| `@compose-expert` | Composable design, state, theming, animations | Senior Compose Engineer |
-| `@coroutine-flow-expert` | Concurrency, structured concurrency, Flow operators | Concurrency Specialist |
-| `@testing-engineer` | Unit, integration, UI tests, TDD guidance | Senior QA/Test Engineer |
+| Agent | Trigger | Role | Model | Memory |
+|---|---|---|---|---|
+| `@android-lead` | Complex multi-domain tasks, full feature delivery, PR planning | Principal Engineer — orchestrates all specialists | opus | project |
+| `@android-architect` | Architecture decisions, module design, layering | Senior Android Architect — produces ADRs & module graphs | sonnet | project |
+| `@kotlin-expert` | Kotlin idioms, coroutines, Flow, language features | Principal Kotlin Engineer | sonnet | — |
+| `@compose-expert` | Composable design, state, theming, animations | Senior Compose Engineer — enforces all Slack rules | sonnet | — |
+| `@coroutine-flow-expert` | Concurrency, structured concurrency, Flow operators | Concurrency Specialist | sonnet | — |
+| `@testing-engineer` | Unit, integration, UI tests, TDD guidance | Senior QA/Test Engineer | sonnet | — |
+
+---
+
+## When to Use Which Agent
+
+| Task | Agent |
+|---|---|
+| "Design the data layer for offline-first sync" | `@android-architect` |
+| "Build the complete UserProfile feature" | `@android-lead` |
+| "Is this idiomatic Kotlin?" | `@kotlin-expert` |
+| "Fix this Compose recomposition issue" | `@compose-expert` |
+| "Design a search Flow with debounce" | `@coroutine-flow-expert` |
+| "Write tests for this ViewModel" | `@testing-engineer` |
+| "Review this PR across all layers" | `@android-lead` |
+| "Refactor this module from MVP to MVVM" | `@android-lead` |
 
 ---
 
@@ -45,6 +93,10 @@ Automated quality gates that run during Claude Code lifecycle events.
 | `session-start` | Session begins | Sets up ktlint, Detekt, validates module structure |
 | `post-tool-lint` | After every file edit | Runs ktlint format + Detekt on changed file |
 | `pre-push-check` | Before git push | Full lint, tests, build validation |
+
+**Sub-agent lifecycle hooks** (configured in `.claude/settings.json`):
+- Each specialist prints a status banner when it starts
+- All agents print completion status on stop
 
 ---
 
