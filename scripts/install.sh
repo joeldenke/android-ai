@@ -26,9 +26,9 @@ Usage:
   bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) <tool>
 
 Tools:
-  claude    Claude Code — skills/ agents/ hooks/ + claude/.claude/ + claude/CLAUDE.md symlinked to root
+  claude    Claude Code — agents/ skills/ hooks/ + .claude/ + CLAUDE.md
             (prefer the plugin marketplace when inside Claude Code:
-             /plugin marketplace add https://github.com/joeldenke/android-ai/claude && /plugin install android-ai)
+             /plugin marketplace add joeldenke/android-ai && /plugin install android-ai)
   cursor    Cursor       — .cursor/rules/ (15 MDC rules, auto-loaded on every chat)
   copilot   Copilot      — .github/copilot-instructions.md (all skills merged as workspace instructions)
   codex     Codex CLI    — AGENTS.md (agent index read automatically by Codex)
@@ -58,22 +58,19 @@ SRC="$TMP/android-ai"
 
 install_claude() {
   echo "Installing for Claude Code..."
-  cp -r "$SRC/skills"  ./skills
-  cp -r "$SRC/agents"  ./agents
-  cp -r "$SRC/hooks"   ./hooks
-  # Create claude/.claude/ with settings.json + symlinks to root dirs (../../ because nested)
-  mkdir -p claude/.claude
-  cp "$SRC/claude/.claude/settings.json" ./claude/.claude/settings.json
-  [[ -L claude/.claude/skills ]] || ln -s ../../skills claude/.claude/skills
-  [[ -L claude/.claude/agents ]] || ln -s ../../agents claude/.claude/agents
-  [[ -L claude/.claude/hooks  ]] || ln -s ../../hooks  claude/.claude/hooks
-  # .claude → claude/.claude symlink for Claude Code compatibility
-  [[ -L .claude ]] || ln -s claude/.claude .claude
-  # CLAUDE.md at root — real file so path references resolve correctly
-  [[ -f CLAUDE.md ]] || cp "$SRC/CLAUDE.md" ./CLAUDE.md
-  echo "  ✓ skills/, agents/, hooks/"
-  echo "  ✓ claude/.claude/ (settings.json + symlinks to root dirs)"
-  echo "  ✓ .claude -> claude/.claude (symlink for Claude Code)"
+  # Copy real content from claude/ (self-contained plugin dir)
+  cp -rL "$SRC/claude/agents"  ./agents
+  cp -rL "$SRC/claude/skills"  ./skills
+  cp -rL "$SRC/claude/hooks"   ./hooks
+  # .claude/ — local Claude Code config pointing at root dirs
+  mkdir -p .claude
+  [[ -L .claude/agents ]] || ln -s ../agents .claude/agents
+  [[ -L .claude/skills ]] || ln -s ../skills .claude/skills
+  [[ -L .claude/hooks  ]] || ln -s ../hooks  .claude/hooks
+  [[ -f .claude/settings.json ]] || cp "$SRC/claude/settings.json" .claude/settings.json
+  [[ -f CLAUDE.md ]] || cp "$SRC/claude/CLAUDE.md" ./CLAUDE.md
+  echo "  ✓ agents/, skills/, hooks/"
+  echo "  ✓ .claude/ (settings.json + symlinks)"
   echo "  ✓ CLAUDE.md"
 }
 
@@ -91,9 +88,9 @@ install_copilot() {
     echo "# Android AI — Copilot Instructions"
     echo "# Generated from https://github.com/joeldenke/android-ai"
     echo ""
-    awk '/^## Coding Standards/,/^## Key References/' "$SRC/CLAUDE.md" | head -n -1
+    awk '/^## Coding Standards/,/^## Key References/' "$SRC/claude/CLAUDE.md" | head -n -1
     echo ""
-    for skill_file in "$SRC/skills/"*.md; do
+    for skill_file in "$SRC/claude/skills/"*.md; do
       echo "---"
       echo ""
       awk '/^---$/{if(fm<2){fm++;next}} fm==2&&/^When the user runs /{next} fm==2{print}' "$skill_file"
@@ -111,8 +108,8 @@ install_codex() {
 
 install_gemini() {
   echo "Installing for Gemini CLI..."
-  cp -r "$SRC/skills" ./skills
-  echo "  ✓ skills/ ($(ls "$SRC/skills/"*.md | wc -l | tr -d ' ') skill files)"
+  cp -rL "$SRC/claude/skills" ./skills
+  echo "  ✓ skills/ ($(ls "$SRC/claude/skills/"*.md | wc -l | tr -d ' ') skill files)"
   echo "  Usage: gemini \"\$(cat skills/new-feature.md)\" \"Scaffold a UserProfile feature\""
 }
 

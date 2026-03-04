@@ -11,7 +11,7 @@ DI-framework agnostic — works with Hilt, Koin, Anvil, Metro, or manual injecti
 
 Plugin marketplace — run inside Claude Code, step 1:
 ```
-/plugin marketplace add https://github.com/joeldenke/android-ai/claude
+/plugin marketplace add joeldenke/android-ai
 ```
 Step 2:
 ```
@@ -56,21 +56,25 @@ Run from your Android project root:
 skills/               ← source of truth — edit these
 agents/               ← source of truth — edit these
 hooks/                ← source of truth — edit these
-claude/               ← plugin root (Claude Code reads from here via marketplace)
+claude/               ← plugin root — self-contained, installed by marketplace
   CLAUDE.md           ← this file
-  agents.md -> ../agents.md   (symlink)
-  agents/   -> ../agents/     (symlink)
-  skills/   -> ../skills/     (symlink)
-  .claude/            ← Claude Code config folder
-    agents -> ../../agents   (symlink)
-    hooks  -> ../../hooks    (symlink)
-    skills -> ../../skills   (symlink)
-    settings.json
-  .claude-plugin/     ← marketplace plugin definition
-    marketplace.json
+  agents/             ← agent definitions (real files)
+  skills/             ← skill definitions (real files)
+  hooks/              ← hook specs (real files)
+  settings.json
+  agents.md -> ../agents.md
+  .claude-plugin/
     plugin.json
-.claude -> claude/.claude
-.claude-plugin -> claude/.claude-plugin
+agents -> claude/agents   (root symlinks — used by other tools + local .claude/)
+skills -> claude/skills
+hooks  -> claude/hooks
+.claude-plugin/       ← marketplace catalog at repo root
+  marketplace.json    ← lists android-ai plugin at source "./claude"
+.claude/              ← local Claude Code config for this repo
+  agents -> ../claude/agents
+  skills -> ../claude/skills
+  hooks  -> ../claude/hooks
+  settings.json -> ../claude/settings.json
 .cursor/rules/        (auto-generated — do not edit)
 .windsurfrules        (auto-generated — do not edit)
 scripts/

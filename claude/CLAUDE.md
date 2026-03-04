@@ -78,21 +78,25 @@ Full definitions: [agents/](agents/) — also read as `AGENTS.md` by Codex CLI.
 skills/                       # ← source of truth for all rule content
 agents/                       # ← source of truth for all sub-agents
 hooks/                        # ← source of truth for lifecycle hooks
-claude/                       # ← plugin root (Claude Code reads from here via marketplace)
+claude/                       # ← plugin root — self-contained, installed by marketplace
   CLAUDE.md                   #   this file
-  agents.md -> ../agents.md   #   symlink — full agent index / Codex AGENTS.md
-  agents/   -> ../agents/     #   symlink — agent definition files
-  skills/   -> ../skills/     #   symlink — skill definition files
-  .claude/                    #   Claude Code config folder
-    agents -> ../../agents    #   symlink
-    hooks  -> ../../hooks     #   symlink
-    skills -> ../../skills    #   symlink
-    settings.json
-  .claude-plugin/             #   marketplace plugin definition
-    marketplace.json
+  agents/                     #   agent definitions (real files — source of truth)
+  skills/                     #   skill definitions (real files — source of truth)
+  hooks/                      #   hook specs (real files)
+  settings.json
+  agents.md -> ../agents.md   #   symlink (works in-repo; Codex AGENTS.md)
+  .claude-plugin/
     plugin.json
-.claude -> claude/.claude     # root symlink — Claude Code resolves to claude/.claude/
-.claude-plugin -> claude/.claude-plugin
+agents -> claude/agents       # root symlinks — used by other tools + local .claude/
+skills -> claude/skills
+hooks  -> claude/hooks
+.claude-plugin/               # marketplace catalog at repo root
+  marketplace.json            # lists android-ai plugin at source "./claude"
+.claude/                      # local Claude Code config for this repo
+  agents   -> ../claude/agents
+  skills   -> ../claude/skills
+  hooks    -> ../claude/hooks
+  settings.json -> ../claude/settings.json
 .cursor/rules/                # auto-generated from skills/ — do not edit
 .windsurfrules                # auto-generated from skills/ — do not edit
 scripts/
