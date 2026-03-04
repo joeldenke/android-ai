@@ -7,12 +7,28 @@ DI-framework agnostic — works with Hilt, Koin, Anvil, Metro, or manual injecti
 
 ## Install
 
-Run from your Android project root.
+### Claude Code
 
-| Tool | One-liner | What you get |
+Plugin marketplace — run inside Claude Code, step 1:
+```
+/plugin marketplace add https://github.com/joeldenke/android-ai/claude
+```
+Step 2:
+```
+/plugin install android-ai
+```
+
+Bash fallback — run in your terminal:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) claude
+```
+
+### Other tools
+
+Run from your Android project root:
+
+| Tool | Command | What you get |
 |---|---|---|
-| **Claude Code** *(marketplace)* | `/plugin marketplace add https://github.com/joeldenke/android-ai/claude`<br>then `/plugin install android-ai` | agents + skills + hooks |
-| **Claude Code** *(bash)* | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) claude` | agents + skills + hooks |
 | **Cursor** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) cursor` | `.cursor/rules/` — 15 MDC rules |
 | **GitHub Copilot** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) copilot` | `.github/copilot-instructions.md` |
 | **Codex CLI** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) codex` | `AGENTS.md` |
