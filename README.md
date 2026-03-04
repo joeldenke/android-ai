@@ -11,7 +11,7 @@ DI-framework agnostic — works with Hilt, Koin, Anvil, Metro, or manual injecti
 
 Plugin marketplace — run inside Claude Code, step 1:
 ```
-/plugin marketplace add joeldenke/android-ai/claude
+/plugin marketplace add joeldenke/android-ai
 ```
 Step 2:
 ```
