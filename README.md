@@ -57,7 +57,7 @@ skills/               ← source of truth — edit these
 agents/               ← source of truth — edit these
 hooks/                ← source of truth — edit these
 claude/               ← all Claude Code config consolidated here
-  CLAUDE.md           ← source (root CLAUDE.md is a symlink to this)
+  CLAUDE.md -> ../CLAUDE.md   (symlink — real file at root)
   .claude/            ← Claude Code reads this folder
     agents -> ../../agents   (symlink)
     hooks  -> ../../hooks    (symlink)
@@ -66,7 +66,7 @@ claude/               ← all Claude Code config consolidated here
   .claude-plugin/     ← marketplace plugin definition
     marketplace.json
     plugin.json
-CLAUDE.md -> claude/CLAUDE.md
+CLAUDE.md             (real file — paths resolve from root)
 .claude -> claude/.claude
 .claude-plugin -> claude/.claude-plugin
 .cursor/rules/        (auto-generated — do not edit)

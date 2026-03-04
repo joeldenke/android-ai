@@ -69,13 +69,12 @@ install_claude() {
   [[ -L claude/.claude/hooks  ]] || ln -s ../../hooks  claude/.claude/hooks
   # .claude → claude/.claude symlink for Claude Code compatibility
   [[ -L .claude ]] || ln -s claude/.claude .claude
-  # claude/CLAUDE.md as source; root CLAUDE.md symlinks to it
-  [[ -f claude/CLAUDE.md ]] || cp "$SRC/claude/CLAUDE.md" ./claude/CLAUDE.md
-  [[ -e CLAUDE.md ]] || ln -s claude/CLAUDE.md CLAUDE.md
+  # CLAUDE.md at root — real file so path references resolve correctly
+  [[ -f CLAUDE.md ]] || cp "$SRC/CLAUDE.md" ./CLAUDE.md
   echo "  ✓ skills/, agents/, hooks/"
   echo "  ✓ claude/.claude/ (settings.json + symlinks to root dirs)"
   echo "  ✓ .claude -> claude/.claude (symlink for Claude Code)"
-  echo "  ✓ claude/CLAUDE.md + CLAUDE.md -> claude/CLAUDE.md"
+  echo "  ✓ CLAUDE.md"
 }
 
 install_cursor() {
