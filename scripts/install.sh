@@ -67,8 +67,8 @@ install_claude() {
   [[ -L .claude/agents ]] || ln -s ../agents .claude/agents
   [[ -L .claude/skills ]] || ln -s ../skills .claude/skills
   [[ -L .claude/hooks  ]] || ln -s ../hooks  .claude/hooks
-  [[ -f .claude/settings.json ]] || cp "$SRC/claude/settings.json" .claude/settings.json
-  [[ -f CLAUDE.md ]] || cp "$SRC/claude/CLAUDE.md" ./CLAUDE.md
+  [[ -f .claude/settings.json ]] || cp "$SRC/.claude/settings.json" .claude/settings.json
+  [[ -f CLAUDE.md ]] || cp "$SRC/CLAUDE.md" ./CLAUDE.md
   echo "  ✓ agents/, skills/, hooks/"
   echo "  ✓ .claude/ (settings.json + symlinks)"
   echo "  ✓ CLAUDE.md"
@@ -88,7 +88,7 @@ install_copilot() {
     echo "# Android AI — Copilot Instructions"
     echo "# Generated from https://github.com/joeldenke/android-ai"
     echo ""
-    awk '/^## Coding Standards/,/^## Key References/' "$SRC/claude/CLAUDE.md" | head -n -1
+    awk '/^## Coding Standards/,/^## Key References/' "$SRC/CLAUDE.md" | head -n -1
     echo ""
     for skill_file in "$SRC/skills/"*.md; do
       echo "---"
