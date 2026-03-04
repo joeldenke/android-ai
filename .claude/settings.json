@@ -1,1 +1,84 @@
-../claude/settings.json
+{
+  "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "android-architect",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '🏗️  [android-architect] Starting architecture review...'"
+          }
+        ]
+      },
+      {
+        "matcher": "kotlin-expert",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '⚙️  [kotlin-expert] Starting Kotlin analysis...'"
+          }
+        ]
+      },
+      {
+        "matcher": "compose-expert",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '🎨 [compose-expert] Starting Compose review...'"
+          }
+        ]
+      },
+      {
+        "matcher": "coroutine-flow-expert",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '🌊 [coroutine-flow-expert] Starting async pipeline design...'"
+          }
+        ]
+      },
+      {
+        "matcher": "testing-engineer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '🧪 [testing-engineer] Starting test suite generation...'"
+          }
+        ]
+      },
+      {
+        "matcher": "android-lead",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '👑 [android-lead] Team lead engaged — coordinating specialists...'"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '✅ Sub-agent task complete.'"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(ktlint*)",
+      "Bash(./gradlew detekt*)",
+      "Bash(./gradlew test*)",
+      "Bash(./gradlew assemble*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git status*)",
+      "Bash(grep*)",
+      "Bash(find*)"
+    ]
+  }
+}
