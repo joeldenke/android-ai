@@ -90,7 +90,7 @@ claude/                       # ← plugin root — self-contained, installed by
 agents -> claude/agents       # root symlinks — used by other tools + local .claude/
 skills -> claude/skills
 hooks  -> claude/hooks
-claude/.claude-plugin/        # marketplace catalog (root .claude-plugin is a symlink here)
+claude/.claude-plugin/        # marketplace catalog (no root symlink needed)
   marketplace.json            # plugin source "./" — claude/ is both marketplace and plugin root
   plugin.json
 .claude/                      # local Claude Code config for this repo
