@@ -10,7 +10,7 @@
     {
       "name": "android-ai",
       "description": "Full Android dev plugin — agents, skills, and hooks encoding Google, JetBrains, and Slack Compose best practices",
-      "source": "./claude"
+      "source": "./"
     }
   ]
 }

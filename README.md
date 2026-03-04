@@ -11,7 +11,7 @@ DI-framework agnostic — works with Hilt, Koin, Anvil, Metro, or manual injecti
 
 Plugin marketplace — run inside Claude Code, step 1:
 ```
-/plugin marketplace add joeldenke/android-ai
+/plugin marketplace add joeldenke/android-ai/claude
 ```
 Step 2:
 ```
@@ -68,8 +68,10 @@ claude/               ← plugin root — self-contained, installed by marketpla
 agents -> claude/agents   (root symlinks — used by other tools + local .claude/)
 skills -> claude/skills
 hooks  -> claude/hooks
-.claude-plugin/       ← marketplace catalog at repo root
-  marketplace.json    ← lists android-ai plugin at source "./claude"
+.claude-plugin -> claude/.claude-plugin   (root symlink)
+claude/.claude-plugin/        ← marketplace catalog
+  marketplace.json    ← plugin source "./" (claude/ is marketplace + plugin root)
+  plugin.json
 .claude/              ← local Claude Code config for this repo
   agents -> ../claude/agents
   skills -> ../claude/skills

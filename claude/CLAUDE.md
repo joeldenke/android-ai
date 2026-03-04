@@ -90,8 +90,9 @@ claude/                       # ← plugin root — self-contained, installed by
 agents -> claude/agents       # root symlinks — used by other tools + local .claude/
 skills -> claude/skills
 hooks  -> claude/hooks
-.claude-plugin/               # marketplace catalog at repo root
-  marketplace.json            # lists android-ai plugin at source "./claude"
+claude/.claude-plugin/        # marketplace catalog (root .claude-plugin is a symlink here)
+  marketplace.json            # plugin source "./" — claude/ is both marketplace and plugin root
+  plugin.json
 .claude/                      # local Claude Code config for this repo
   agents   -> ../claude/agents
   skills   -> ../claude/skills
