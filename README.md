@@ -53,35 +53,26 @@ Run from your Android project root:
 ## Structure
 
 ```
-skills/               ← source of truth — edit these
 agents/               ← source of truth — edit these
+skills/               ← source of truth — edit these
 hooks/                ← source of truth — edit these
-claude/               ← plugin root — self-contained, installed by marketplace
-  CLAUDE.md           ← this file
-  agents/             ← agent definitions (real files)
-  skills/             ← skill definitions (real files)
-  hooks/              ← hook specs (real files)
+claude/               ← plugin root — installed by Claude Code marketplace
+  CLAUDE.md
+  agents  -> ../agents      (symlink → root)
+  skills  -> ../skills      (symlink → root)
+  hooks   -> ../hooks       (symlink → root)
   settings.json
-  agents.md -> ../agents.md
+  agents.md -> ../AGENTS.md
   .claude-plugin/
+    marketplace.json        (plugin source "./" — claude/ is marketplace + plugin root)
     plugin.json
-agents -> claude/agents   (root symlinks — used by other tools + local .claude/)
-skills -> claude/skills
-hooks  -> claude/hooks
-claude/.claude-plugin/    ← marketplace catalog (no root symlink needed)
-  marketplace.json      ← plugin source "./" (claude/ is both marketplace + plugin root)
-  plugin.json
-.claude/              ← local Claude Code config for this repo
-  agents -> ../claude/agents
-  skills -> ../claude/skills
-  hooks  -> ../claude/hooks
-  settings.json -> ../claude/settings.json
-.cursor/rules/        (auto-generated — do not edit)
+.cursor/
+  rules/              (Cursor MDC rules — auto-generated from skills/, do not edit)
 .windsurfrules        (auto-generated — do not edit)
 scripts/
   install.sh          (one-liner installer — run with --help for usage)
   sync-rules.sh       (regenerates .cursor/rules/ and .windsurfrules from skills/)
-agents.md             (marketplace index / Codex AGENTS.md)
+AGENTS.md             (marketplace index / Codex AGENTS.md)
 ```
 
 **`skills/` is the single source of truth.** After updating a skill, regenerate the tool adapters:

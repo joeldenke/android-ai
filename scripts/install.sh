@@ -58,10 +58,10 @@ SRC="$TMP/android-ai"
 
 install_claude() {
   echo "Installing for Claude Code..."
-  # Copy real content from claude/ (self-contained plugin dir)
-  cp -rL "$SRC/claude/agents"  ./agents
-  cp -rL "$SRC/claude/skills"  ./skills
-  cp -rL "$SRC/claude/hooks"   ./hooks
+  # Copy real content from root dirs (source of truth)
+  cp -r "$SRC/agents"  ./agents
+  cp -r "$SRC/skills"  ./skills
+  cp -r "$SRC/hooks"   ./hooks
   # .claude/ — local Claude Code config pointing at root dirs
   mkdir -p .claude
   [[ -L .claude/agents ]] || ln -s ../agents .claude/agents
@@ -90,7 +90,7 @@ install_copilot() {
     echo ""
     awk '/^## Coding Standards/,/^## Key References/' "$SRC/claude/CLAUDE.md" | head -n -1
     echo ""
-    for skill_file in "$SRC/claude/skills/"*.md; do
+    for skill_file in "$SRC/skills/"*.md; do
       echo "---"
       echo ""
       awk '/^---$/{if(fm<2){fm++;next}} fm==2&&/^When the user runs /{next} fm==2{print}' "$skill_file"
@@ -102,14 +102,14 @@ install_copilot() {
 
 install_codex() {
   echo "Installing for Codex CLI..."
-  cp "$SRC/agents.md" ./AGENTS.md
+  cp "$SRC/AGENTS.md" ./AGENTS.md
   echo "  ✓ AGENTS.md"
 }
 
 install_gemini() {
   echo "Installing for Gemini CLI..."
-  cp -rL "$SRC/claude/skills" ./skills
-  echo "  ✓ skills/ ($(ls "$SRC/claude/skills/"*.md | wc -l | tr -d ' ') skill files)"
+  cp -r "$SRC/skills" ./skills
+  echo "  ✓ skills/ ($(ls "$SRC/skills/"*.md | wc -l | tr -d ' ') skill files)"
   echo "  Usage: gemini \"\$(cat skills/new-feature.md)\" \"Scaffold a UserProfile feature\""
 }
 

@@ -75,35 +75,26 @@ Full definitions: [agents/](agents/) — also read as `AGENTS.md` by Codex CLI.
 ## Structure
 
 ```
-skills/                       # ← source of truth for all rule content
 agents/                       # ← source of truth for all sub-agents
+skills/                       # ← source of truth for all rule content
 hooks/                        # ← source of truth for lifecycle hooks
 claude/                       # ← plugin root — self-contained, installed by marketplace
   CLAUDE.md                   #   this file
-  agents/                     #   agent definitions (real files — source of truth)
-  skills/                     #   skill definitions (real files — source of truth)
-  hooks/                      #   hook specs (real files)
+  agents  -> ../agents        #   symlink → root (source of truth)
+  skills  -> ../skills        #   symlink → root (source of truth)
+  hooks   -> ../hooks         #   symlink → root (source of truth)
   settings.json
-  agents.md -> ../agents.md   #   symlink (works in-repo; Codex AGENTS.md)
+  agents.md -> ../AGENTS.md   #   symlink (works in-repo; Codex AGENTS.md)
   .claude-plugin/
+    marketplace.json          #   plugin source "./" — claude/ is both marketplace + plugin root
     plugin.json
-agents -> claude/agents       # root symlinks — used by other tools + local .claude/
-skills -> claude/skills
-hooks  -> claude/hooks
-claude/.claude-plugin/        # marketplace catalog (no root symlink needed)
-  marketplace.json            # plugin source "./" — claude/ is both marketplace and plugin root
-  plugin.json
-.claude/                      # local Claude Code config for this repo
-  agents   -> ../claude/agents
-  skills   -> ../claude/skills
-  hooks    -> ../claude/hooks
-  settings.json -> ../claude/settings.json
-.cursor/rules/                # auto-generated from skills/ — do not edit
+.cursor/
+  rules/                      # Cursor MDC rules (auto-generated from skills/ — do not edit)
 .windsurfrules                # auto-generated from skills/ — do not edit
 scripts/
   install.sh                  # one-liner installer per tool (--help for usage)
   sync-rules.sh               # regenerates .cursor/rules/ and .windsurfrules from skills/
-agents.md                     # marketplace index (also serves as Codex AGENTS.md)
+AGENTS.md                     # marketplace index (also serves as Codex AGENTS.md)
 ```
 
 ## Coding Standards (enforced everywhere)
