@@ -40,7 +40,8 @@ Run from your Android project root.
 skills/               ← source of truth — edit these
 agents/               ← source of truth — edit these
 hooks/                ← source of truth — edit these
-claude/               ← Claude Code config (visible, non-hidden)
+claude/               ← all Claude Code config consolidated here
+  CLAUDE.md           ← source (root CLAUDE.md is a symlink to this)
   .claude/            ← Claude Code reads this folder
     agents -> ../../agents   (symlink)
     hooks  -> ../../hooks    (symlink)
@@ -49,13 +50,15 @@ claude/               ← Claude Code config (visible, non-hidden)
   .claude-plugin/     ← marketplace plugin definition
     marketplace.json
     plugin.json
-.claude -> claude/.claude     ← root symlink; Claude Code resolves to claude/.claude/
+CLAUDE.md -> claude/CLAUDE.md
+.claude -> claude/.claude
 .claude-plugin -> claude/.claude-plugin
 .cursor/rules/        (auto-generated — do not edit)
 .windsurfrules        (auto-generated — do not edit)
 scripts/
   install.sh          (one-liner installer — run with --help for usage)
   sync-rules.sh       (regenerates .cursor/rules/ and .windsurfrules from skills/)
+agents.md             (marketplace index / Codex AGENTS.md)
 ```
 
 **`skills/` is the single source of truth.** After updating a skill, regenerate the tool adapters:

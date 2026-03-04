@@ -26,9 +26,9 @@ Usage:
   bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) <tool>
 
 Tools:
-  claude    Claude Code — claude/ config folder + .claude symlink + skills/ agents/ hooks/ + CLAUDE.md
+  claude    Claude Code — skills/ agents/ hooks/ + claude/.claude/ + claude/CLAUDE.md symlinked to root
             (prefer the plugin marketplace when inside Claude Code:
-             /plugin marketplace add https://github.com/joeldenke/android-ai && /plugin install android-ai)
+             /plugin marketplace add https://github.com/joeldenke/android-ai/claude && /plugin install android-ai)
   cursor    Cursor       — .cursor/rules/ (15 MDC rules, auto-loaded on every chat)
   copilot   Copilot      — .github/copilot-instructions.md (all skills merged as workspace instructions)
   codex     Codex CLI    — AGENTS.md (agent index read automatically by Codex)
@@ -69,11 +69,13 @@ install_claude() {
   [[ -L claude/.claude/hooks  ]] || ln -s ../../hooks  claude/.claude/hooks
   # .claude → claude/.claude symlink for Claude Code compatibility
   [[ -L .claude ]] || ln -s claude/.claude .claude
-  [[ -f CLAUDE.md ]] || cp "$SRC/CLAUDE.md" ./CLAUDE.md
+  # claude/CLAUDE.md as source; root CLAUDE.md symlinks to it
+  [[ -f claude/CLAUDE.md ]] || cp "$SRC/claude/CLAUDE.md" ./claude/CLAUDE.md
+  [[ -e CLAUDE.md ]] || ln -s claude/CLAUDE.md CLAUDE.md
   echo "  ✓ skills/, agents/, hooks/"
   echo "  ✓ claude/.claude/ (settings.json + symlinks to root dirs)"
   echo "  ✓ .claude -> claude/.claude (symlink for Claude Code)"
-  echo "  ✓ CLAUDE.md"
+  echo "  ✓ claude/CLAUDE.md + CLAUDE.md -> claude/CLAUDE.md"
 }
 
 install_cursor() {
