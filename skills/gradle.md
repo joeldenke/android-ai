@@ -27,8 +27,9 @@ All build files must be `build.gradle.kts`. Convert any Groovy files found.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.ksp)
+    alias(libs.plugins.ksp)          // if your DI framework needs KSP (Hilt, Anvil, etc.)
+    // alias(libs.plugins.hilt)      // Hilt — add if using Hilt
+    // alias(libs.plugins.kotlin.kapt) // KAPT — only if your DI framework still requires it
 }
 
 android {
@@ -65,8 +66,11 @@ All versions and dependencies must live in `gradle/libs.versions.toml`. Zero har
 agp                 = "8.7.0"
 kotlin              = "2.1.0"
 ksp                 = "2.1.0-1.0.29"
-hilt                = "2.53"
 compose-bom         = "2025.01.00"
+# DI — uncomment/replace the block that matches your framework:
+# hilt              = "2.53"   # Hilt (Dagger)
+# koin              = "4.0.0"  # Koin
+# anvil             = "2.5.0"  # Anvil
 coroutines          = "1.10.1"
 lifecycle           = "2.9.0"
 navigation          = "2.9.0"
@@ -89,10 +93,15 @@ compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling
 compose-material3        = { group = "androidx.compose.material3", name = "material3" }
 compose-activity         = { group = "androidx.activity", name = "activity-compose", version = "1.10.0" }
 
-# Hilt
-hilt-android             = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
-hilt-compiler            = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
-hilt-navigation-compose  = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.2.0" }
+# DI — add the libraries for your chosen framework:
+# Hilt (Dagger)
+# hilt-android             = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+# hilt-compiler            = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
+# hilt-navigation-compose  = { group = "androidx.hilt", name = "hilt-navigation-compose", version = "1.2.0" }
+# Koin
+# koin-android             = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
+# koin-compose             = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
+# Anvil / Metro / Dagger bare — add equivalent entries for your chosen framework
 
 # Coroutines
 coroutines-core          = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -129,8 +138,10 @@ android-library      = { id = "com.android.library", version.ref = "agp" }
 kotlin-android       = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose       = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
-hilt                 = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp                  = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+# DI plugins — uncomment for your framework:
+# hilt               = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+# anvil              = { id = "com.squareup.anvil", version.ref = "anvil" }
 detekt               = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 ktlint               = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 
@@ -153,7 +164,7 @@ build-logic/
       AndroidApplicationConventionPlugin.kt
       AndroidLibraryConventionPlugin.kt
       AndroidComposeConventionPlugin.kt
-      HiltConventionPlugin.kt
+      DiConventionPlugin.kt        # wraps your chosen DI framework's plugin + deps
       KtlintConventionPlugin.kt
     build.gradle.kts
 ```
@@ -450,8 +461,10 @@ buildTypes {
 -dontwarn okio.**
 -keepnames class okhttp3.internal.publicsuffix.PublicSuffixDatabase
 
-# Hilt
--keep class dagger.hilt.** { *; }
+# DI framework (add the keep rules for your chosen framework, e.g.:)
+# -keep class dagger.hilt.** { *; }    # Hilt
+# -keep class dagger.**  { *; }        # Dagger bare
+# -keep class org.koin.** { *; }       # Koin
 
 # Room
 -keep class * extends androidx.room.RoomDatabase

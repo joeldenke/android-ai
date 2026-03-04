@@ -10,7 +10,8 @@
       "version": "1.0.0",
       "source": {
         "type": "github",
-        "repo": "joeldenke/android-ai"
+        "repo": "joeldenke/android-ai",
+        "path": "claude"
       }
     }
   ]

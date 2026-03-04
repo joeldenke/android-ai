@@ -82,12 +82,12 @@ When the user runs `/code-review [file, directory, or PR description]`, perform 
 - [ ] Touch targets ≥ 48dp
 - [ ] Custom modifiers use `Modifier.Node` API, not `Modifier.composed`
 
-### Dependency Injection (Hilt)
-- [ ] `@HiltViewModel` on every ViewModel
-- [ ] Repositories and DataSources are `@Singleton`
-- [ ] No `Context` injected into ViewModel (use `@ApplicationContext` or abstract it)
-- [ ] Hilt modules use `@Binds` for interfaces, `@Provides` for third-party types
-- [ ] No manual `Hilt.inject()` calls outside Activity/Fragment/Service/BroadcastReceiver
+### Dependency Injection
+- [ ] All dependencies injected via constructor (`@Inject constructor`) — no service locator, no manual instantiation inside classes
+- [ ] Repositories and DataSources are scoped as singletons in the DI graph
+- [ ] No `Context` injected into ViewModel — pass `ApplicationContext` or abstract behind an interface
+- [ ] Interface bindings declared in the DI graph (not concrete types leaked across layers)
+- [ ] No framework-specific DI annotations leaking into the `:domain` layer
 
 ### Security
 - [ ] No secrets, API keys, or tokens in source code

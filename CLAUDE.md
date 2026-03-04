@@ -6,63 +6,79 @@ and the Slack Compose rules into every interaction.
 
 ## Quick Start
 
+### Claude Code
 ```bash
-# Architecture decisions
-@android-architect "Design the data layer for offline-first sync"
+@android-architect "Design the data layer for offline-first sync"  # Architecture decisions
+/new-feature UserProfile screen with MVVM                          # Scaffold a full feature
+/gradle optimize                                                   # Build system
+/adb logcat com.example.app                                        # Device debugging
+/figma-verify https://www.figma.com/file/ABC123?node-id=42:100    # Design system
+```
 
-# Scaffold a full feature
-/new-feature UserProfile screen with MVVM
+### GitHub Copilot
+```bash
+# In Copilot Chat — paste the skill content as a prompt or reference the rules file directly:
+@workspace /new-feature UserProfile screen with MVVM
+@workspace /code-review src/feature/home/
+@workspace /architecture-audit
+@workspace /write-tests HomeViewModel
+```
 
-# Build system
-/gradle optimize
-/github-actions-android pr-check
+### Cursor
+```bash
+# Rules auto-loaded from .cursor/rules/ — just chat naturally:
+Add a new UserProfile feature following MVVM Clean Architecture
+Review HomeScreen.kt for Compose correctness
+Audit the project for architecture violations
+```
 
-# Device debugging
-/adb logcat com.example.app
-/auto-mobile reproduce "NullPointerException in CheckoutViewModel on empty cart"
+### Codex CLI
+```bash
+codex "Scaffold a UserProfile feature with MVVM and Clean Architecture per AGENTS.md"
+codex "Review HomeViewModel.kt for coroutine and architecture issues"
+codex "Write unit tests for UserProfileViewModel using JUnit5 and Turbine"
+```
 
-# Design system
-/figma-verify https://www.figma.com/file/ABC123?node-id=42:100
-/figma-sync screen ProfileScreen
+### Gemini CLI / AI Studio
+```bash
+# Reference the skill file inline:
+gemini "$(cat skills/new-feature.md)" "Scaffold a UserProfile feature"
+gemini "$(cat skills/code-review.md)" "Review this file: $(cat HomeViewModel.kt)"
+gemini "$(cat skills/write-tests.md)" "Write tests for UserProfileViewModel"
+```
 
-# Quality hooks run automatically on every file edit and git push
+### Windsurf
+```bash
+# Rules auto-loaded from .windsurfrules — just chat naturally:
+Create a new UserProfile feature following the project architecture
+Review this PR for Android best practices
+Optimise the Gradle build configuration
 ```
 
 ## Structure
 
 ```
-.claude/
-  agents/               # Specialist sub-agents
-    android-architect.md
-    kotlin-expert.md
-    compose-expert.md
-    coroutine-flow-expert.md
-    testing-engineer.md
-  skills/               # Reusable slash commands
-    # Code & Architecture
-    new-feature.md
-    compose-component.md
-    code-review.md
-    refactor-kotlin.md
-    coroutine-flow.md
-    architecture-audit.md
-    debug-performance.md
-    write-tests.md
-    # Build & CI/CD
-    gradle.md
-    github-actions-android.md
-    # Device & QA
-    adb.md
-    auto-mobile.md
-    # Design System
-    figma-verify.md
-    figma-sync.md
-  hooks/                # Lifecycle automation
-    session-start.md
-    post-tool-lint.md
-    pre-push-check.md
-agents.md               # Marketplace index
-CLAUDE.md               # This file
+skills/                       # ← source of truth for all rule content
+agents/                       # ← source of truth for all sub-agents
+hooks/                        # ← source of truth for lifecycle hooks
+claude/                       # ← all Claude Code config consolidated here
+  .claude/                    #   Claude Code reads this folder
+    agents -> ../../agents    #   symlink
+    hooks  -> ../../hooks     #   symlink
+    skills -> ../../skills    #   symlink
+    settings.json
+  .claude-plugin/             #   marketplace plugin definition
+    marketplace.json
+    plugin.json
+.claude -> claude/.claude     # root symlink — Claude Code resolves to claude/.claude/
+.claude-plugin -> claude/.claude-plugin
+.cursor/rules/                # auto-generated from skills/ — do not edit
+.windsurfrules                # auto-generated from skills/ — do not edit
+scripts/
+  install.sh                  # one-liner installer per tool (--help for usage)
+  sync-rules.sh               # regenerates .cursor/rules/ and .windsurfrules from skills/
+agents.md                     # marketplace index (also serves as Codex AGENTS.md)
+CLAUDE.md                     # this file
 ```
 
 ## Coding Standards (enforced everywhere)
@@ -70,7 +86,7 @@ CLAUDE.md               # This file
 - **Language**: Kotlin only — no Java in new code
 - **Min SDK**: 26+ (use modern APIs freely)
 - **Architecture**: MVVM + Clean Architecture (UI / Domain / Data layers)
-- **DI**: Hilt
+- **DI**: Framework-agnostic — works with Hilt, Koin, Anvil, Metro, Dagger, or manual injection; patterns use constructor injection and interfaces throughout
 - **Async**: Kotlin Coroutines + Flow (no RxJava, no callbacks)
 - **UI**: Jetpack Compose — design-system-agnostic token model (Material3 optional, not required)
 - **Design tokens**: `@Immutable` data classes + `CompositionLocal` — components never read raw values
