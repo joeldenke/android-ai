@@ -1,9 +1,10 @@
 ---
-name: write-tests
 description: Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases. Uses JUnit5 + Turbine + Mockk + Compose UI test.
+globs: **/*Test*.kt,**/*Spec*.kt
+alwaysApply: false
 ---
 
-When the user runs `/write-tests <target>`, generate a complete, production-quality test suite for the specified class or feature.
+
 
 ## What to Generate
 

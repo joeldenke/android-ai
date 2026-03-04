@@ -1,0 +1,20 @@
+---
+description: Android AI base coding standards — enforced on every file
+alwaysApply: true
+---
+
+## Coding Standards (enforced everywhere)
+
+- **Language**: Kotlin only — no Java in new code
+- **Min SDK**: 26+ (use modern APIs freely)
+- **Architecture**: MVVM + Clean Architecture (UI / Domain / Data layers)
+- **DI**: Hilt
+- **Async**: Kotlin Coroutines + Flow (no RxJava, no callbacks)
+- **UI**: Jetpack Compose — design-system-agnostic token model (Material3 optional, not required)
+- **Design tokens**: `@Immutable` data classes + `CompositionLocal` — components never read raw values
+- **Testing**: JUnit5 + Turbine + Mockk + Compose UI test
+- **Lint**: ktlint + Detekt + Slack Compose rules (zero warnings policy)
+- **Build**: Kotlin DSL (`build.gradle.kts`) + Version Catalogs (`libs.versions.toml`) + convention plugins
+- **CI**: `gradle/actions/setup-gradle` with SHA-pinned actions; config cache encryption
+
+## Key References

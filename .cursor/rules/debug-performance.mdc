@@ -1,9 +1,10 @@
 ---
-name: debug-performance
 description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type.
+globs: **/*.kt
+alwaysApply: false
 ---
 
-When the user runs `/debug-performance <screen or area>`, apply the following diagnostic framework.
+
 
 ## Performance Diagnostic Framework
 

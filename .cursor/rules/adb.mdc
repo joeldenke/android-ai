@@ -1,0 +1,261 @@
+---
+description: Android Debug Bridge expert — device inspection, app debugging, logcat analysis, performance profiling, database access, network inspection, and shell automation.
+alwaysApply: false
+---
+
+
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/adb` | Device status overview — connected devices, app info, memory |
+| `/adb logcat [tag or package]` | Filtered logcat with crash detection |
+| `/adb profile <package>` | CPU, memory, frame rate snapshot |
+| `/adb db <package>` | Pull and inspect SQLite databases |
+| `/adb network <package>` | Inspect network traffic via HTTP proxy |
+| `/adb screenshot` | Capture and pull screenshot |
+| `/adb record [duration]` | Record screen video (default 30s) |
+| `/adb install <apk>` | Install APK with grant-all-permissions |
+| `/adb clear <package>` | Clear app data and cache |
+| `/adb deep-link <url>` | Fire deep link intent |
+
+---
+
+## Device Management
+
+```bash
+# List connected devices with human-readable info
+adb devices -l
+
+# Target specific device for all subsequent commands
+export ANDROID_SERIAL=<serial>
+
+# Get device properties
+adb shell getprop ro.build.version.release    # Android version
+adb shell getprop ro.product.model            # Device model
+adb shell getprop ro.build.fingerprint        # Full fingerprint
+
+# Screen information
+adb shell wm size
+adb shell wm density
+
+# Battery state (useful for CI — ensure device is charged)
+adb shell dumpsys battery | grep -E "level|status|powered"
+```
+
+---
+
+## App Inspection
+
+```bash
+# Full package info: version, permissions, install time, APK path
+adb shell dumpsys package <package.name>
+
+# List all installed packages
+adb shell pm list packages -f | grep <keyword>
+
+# Get current foreground activity
+adb shell dumpsys activity activities | grep mResumedActivity
+
+# App memory breakdown
+adb shell dumpsys meminfo <package.name>
+
+# Force-stop app (respects lifecycle)
+adb shell am force-stop <package.name>
+
+# Clear app data + cache (equivalent to Settings → Clear Data)
+adb shell pm clear <package.name>
+
+# Revoke a runtime permission
+adb shell pm revoke <package.name> android.permission.CAMERA
+# Grant a runtime permission
+adb shell pm grant <package.name> android.permission.CAMERA
+```
+
+---
+
+## Logcat — Filtered and Actionable
+
+```bash
+# Clear buffer first, then stream filtered by package
+adb logcat -c && adb logcat --pid=$(adb shell pidof -s <package.name>)
+
+# Filter by tag (e.g., your app tag)
+adb logcat -s MyAppTag:D
+
+# Capture crash — show only errors and above
+adb logcat *:E
+
+# Save logcat to file with timestamps
+adb logcat -v threadtime > logcat_$(date +%Y%m%d_%H%M%S).txt
+
+# Detect ANR signals
+adb logcat | grep -i "ANR\|Choreographer\|skipped.*frames"
+
+# Monitor a specific class
+adb logcat | grep "UserRepository"
+```
+
+**Logcat levels**: V (verbose) D (debug) I (info) W (warn) E (error) F (fatal)
+
+---
+
+## Performance Profiling
+
+```bash
+# Frame rendering — identify jank (>16ms frames = dropped)
+adb shell dumpsys gfxinfo <package.name>
+
+# Detailed frame stats (last 120 frames)
+adb shell dumpsys gfxinfo <package.name> framestats
+
+# Reset gfxinfo counters before profiling
+adb shell dumpsys gfxinfo <package.name> reset
+
+# CPU usage for package
+adb shell top -p $(adb shell pidof -s <package.name>) -n 1
+
+# Memory — track over time (run repeatedly)
+adb shell dumpsys meminfo <package.name> | grep -E "TOTAL|Heap|Native"
+
+# Startup time — cold start (kill first)
+adb shell am force-stop <package.name>
+adb shell am start -W -n <package.name>/.<MainActivity>
+# Look for: TotalTime= (full start) and WaitTime=
+
+# Battery attribution
+adb shell dumpsys batterystats --charged <package.name>
+```
+
+---
+
+## Database Access
+
+```bash
+# Pull the entire app databases directory
+adb shell "run-as <package.name> cp -r /data/data/<package.name>/databases /sdcard/tmp_db"
+adb pull /sdcard/tmp_db ./local_db && adb shell rm -rf /sdcard/tmp_db
+
+# Query a specific table directly on device
+adb shell "run-as <package.name> sqlite3 /data/data/<package.name>/databases/<db_name>.db 'SELECT * FROM users LIMIT 20;'"
+
+# List all tables
+adb shell "run-as <package.name> sqlite3 /data/data/<package.name>/databases/<db_name>.db '.tables'"
+
+# Pull SharedPreferences XML
+adb shell "run-as <package.name> cat /data/data/<package.name>/shared_prefs/<prefs_name>.xml"
+
+# Pull all shared prefs
+adb shell "run-as <package.name> cp -r /data/data/<package.name>/shared_prefs /sdcard/tmp_prefs"
+adb pull /sdcard/tmp_prefs .
+```
+
+---
+
+## Screenshot and Screen Recording
+
+```bash
+# Screenshot — pull to current directory
+adb shell screencap -p /sdcard/screen.png && adb pull /sdcard/screen.png ./screen_$(date +%H%M%S).png && adb shell rm /sdcard/screen.png
+
+# Screen record (max 3 minutes per recording; use --time-limit)
+adb shell screenrecord --time-limit 30 /sdcard/demo.mp4
+adb pull /sdcard/demo.mp4 ./demo_$(date +%Y%m%d_%H%M%S).mp4
+adb shell rm /sdcard/demo.mp4
+
+# Higher bitrate for clearer recording
+adb shell screenrecord --bit-rate 8000000 --time-limit 30 /sdcard/demo.mp4
+```
+
+---
+
+## Deep Links and Intent Firing
+
+```bash
+# Fire a deep link
+adb shell am start -a android.intent.action.VIEW -d "myapp://profile/123"
+
+# Start activity directly
+adb shell am start -n <package.name>/.<TargetActivity>
+
+# Start with extras (useful for debugging feature flags)
+adb shell am start -n <package.name>/.<TargetActivity> \
+  --es "userId" "abc123" \
+  --ez "debugMode" "true"
+
+# Broadcast an intent
+adb shell am broadcast -a com.example.MY_ACTION
+
+# Simulate low memory warning
+adb shell am send-trim-memory <package.name> COMPLETE
+```
+
+---
+
+## Network Inspection
+
+```bash
+# Redirect app traffic through local proxy (e.g., Charles on 8888)
+adb shell settings put global http_proxy 192.168.1.100:8888
+
+# Remove proxy
+adb shell settings delete global http_proxy
+
+# Open port forwarding — expose device port on host (e.g., for MCP SDK)
+adb forward tcp:8080 tcp:8080
+
+# Reverse port forward — expose host port on device
+adb reverse tcp:3000 tcp:3000
+
+# Check open sockets on device
+adb shell ss -tnp | grep <package.name_pid>
+```
+
+---
+
+## File System
+
+```bash
+# Push file to app's private storage (requires run-as)
+adb push ./test_data.json /sdcard/test_data.json
+adb shell "run-as <package.name> cp /sdcard/test_data.json /data/data/<package.name>/files/"
+
+# List app files
+adb shell "run-as <package.name> ls -la /data/data/<package.name>/"
+
+# Pull crash logs from device
+adb pull /data/tombstones/ ./tombstones/
+```
+
+---
+
+## Useful One-Liners
+
+```bash
+# Unlock screen
+adb shell input keyevent 82
+
+# Input text (no special chars)
+adb shell input text "testpassword123"
+
+# Tap at coordinates
+adb shell input tap 540 960
+
+# Swipe (start_x start_y end_x end_y duration_ms)
+adb shell input swipe 540 1600 540 400 300
+
+# Back button
+adb shell input keyevent 4
+
+# Home button
+adb shell input keyevent 3
+
+# Toggle airplane mode (root required)
+adb shell settings put global airplane_mode_on 1
+adb shell am broadcast -a android.intent.action.AIRPLANE_MODE
+
+# Simulate app going to background and returning
+adb shell input keyevent 3   # Home
+adb shell am start -n <package>/<activity>
+```

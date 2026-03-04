@@ -1,6 +1,6 @@
 ---
 name: new-feature
-description: Scaffolds a complete, production-ready MVVM feature — Compose screen, ViewModel, UseCase, Repository interface, Repository implementation, Hilt DI module, and unit tests. Follows Clean Architecture layer separation.
+description: Scaffolds a complete, production-ready MVVM feature — Compose screen, ViewModel, UseCase, Repository interface, Repository implementation, DI bindings, and unit tests. Follows Clean Architecture layer separation. DI-framework agnostic — works with Hilt, Koin, Anvil, Metro, or manual injection.
 ---
 
 When the user runs `/new-feature <FeatureName> [description]`, generate the full vertical slice for that feature.
@@ -78,16 +78,37 @@ class UserRepositoryImpl @Inject constructor(
 }
 ```
 
-**`UserDataModule.kt`** — Hilt bindings
+**`UserDataModule.kt`** — DI bindings (adapt to your DI framework)
+
+> Choose the snippet that matches your project's DI framework:
+
+**Hilt**
 ```kotlin
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class UserDataModule {
-
-    @Binds
-    @Singleton
+    @Binds @Singleton
     abstract fun bindUserRepository(impl: UserRepositoryImpl): UserRepository
 }
+```
+
+**Koin**
+```kotlin
+val userDataModule = module {
+    single<UserRepository> { UserRepositoryImpl(get(), get(), get()) }
+}
+```
+
+**Anvil / Metro / Dagger (manual binding)**
+```kotlin
+@ContributesBinding(AppScope::class)
+class UserRepositoryImpl @Inject constructor(...) : UserRepository
+```
+
+**Manual / No Framework**
+```kotlin
+// In your app-level DI graph or Application class:
+val userRepository: UserRepository = UserRepositoryImpl(remoteSource, localSource, ioDispatcher)
 ```
 
 ### 3. UI Layer — `:feature:userprofile` module
@@ -108,7 +129,6 @@ sealed interface UserProfileUiEvent {
 
 **`UserProfileViewModel.kt`**
 ```kotlin
-@HiltViewModel
 class UserProfileViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getUserProfileUseCase: GetUserProfileUseCase,
@@ -154,7 +174,7 @@ class UserProfileViewModel @Inject constructor(
 fun UserProfileScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: UserProfileViewModel = hiltViewModel(),
+    viewModel: UserProfileViewModel = viewModel(),  // provide via your DI framework's ViewModelFactory
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -231,5 +251,5 @@ Generate `UserProfileScreenTest.kt` covering:
 - [ ] All screens have `modifier: Modifier = Modifier`
 - [ ] ViewModel never passed to child composables
 - [ ] All state collected with `collectAsStateWithLifecycle()`
-- [ ] Hilt module created for DI bindings
+- [ ] DI bindings created for the repository (Hilt module, Koin module, manual wiring, etc.)
 - [ ] Tests cover all three states: Loading, Success, Error

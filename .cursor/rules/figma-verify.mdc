@@ -1,0 +1,193 @@
+---
+description: Verify that Android Compose implementation matches Figma designs. Uses the Figma MCP server to extract design specs, tokens, and component structure, then compares against the live implementation.
+alwaysApply: false
+---
+
+
+
+## Setup — Figma MCP
+
+```bash
+# Add Figma remote MCP server (requires Figma account, Dev Mode recommended)
+claude mcp add --transport http figma https://mcp.figma.com/mcp
+
+# Available for all projects (user scope)
+claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp
+
+# Verify connection
+/mcp   # → shows figma server status; hit Enter to authenticate if disconnected
+```
+
+Authentication: Claude will open a browser to log in to your Figma account. Grant access. No API token management needed.
+
+**Alternative (no Dev Mode license):**
+```bash
+# Open-source alternative — works with free Figma accounts
+npx @arinspunk/claude-talk-to-figma-mcp
+claude mcp add figma-local stdio "npx @arinspunk/claude-talk-to-figma-mcp"
+```
+
+---
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/figma-verify` | Verify current screen against linked Figma frame |
+| `/figma-verify <figma-url>` | Verify implementation against specific Figma frame URL |
+| `/figma-verify tokens` | Compare design tokens (colors, type, spacing) against Figma variables |
+| `/figma-verify component <name>` | Verify a specific component against its Figma counterpart |
+| `/figma-verify a11y` | Check that implementation matches Figma's accessibility annotations |
+
+---
+
+## Workflow
+
+### 1. Pull Design Spec from Figma
+
+Tell Claude which Figma frame or file to inspect:
+
+```
+/figma-verify https://www.figma.com/file/ABC123/MyApp?node-id=42:100
+
+Compare the ProfileScreen Compose implementation
+(app/src/main/java/com/example/feature/profile/ProfileScreen.kt)
+against the Figma frame linked above.
+```
+
+Claude will use the Figma MCP to extract:
+- Layout structure (frames, auto-layout direction, gap, padding)
+- Typography (font, size, weight, line height, letter spacing)
+- Colors (fills, strokes, opacity)
+- Spacing and sizing (width, height, padding, margins)
+- Component instances and variants
+- Design tokens / Figma Variables
+
+### 2. Read the Implementation
+
+Claude reads the Compose file and maps each element to its Figma counterpart.
+
+### 3. Report Deviations
+
+---
+
+## Token Verification
+
+```
+/figma-verify tokens
+
+Extract all Figma Variables from the design system file:
+https://www.figma.com/file/DESIGN_SYSTEM_FILE_ID/DesignSystem
+
+Compare against our token definitions in:
+- app/src/main/java/com/example/core/ui/theme/AppColors.kt
+- app/src/main/java/com/example/core/ui/theme/AppTypography.kt
+- app/src/main/java/com/example/core/ui/theme/AppSpacing.kt
+
+Flag:
+1. Figma tokens that don't exist in code
+2. Code tokens that don't exist in Figma
+3. Value mismatches (e.g., Figma primary = #1A73E8, code primary = #1A74E9)
+4. Naming mismatches (e.g., Figma "Color/Brand/Primary" → code should be "primary")
+```
+
+**Token mapping table (Figma → Kotlin):**
+
+| Figma Variable | Kotlin Token | Check |
+|---|---|---|
+| `Color/Brand/Primary` | `AppTheme.colors.primary` | value + name |
+| `Color/Brand/OnPrimary` | `AppTheme.colors.onPrimary` | value + name |
+| `Color/Feedback/Error` | `AppTheme.colors.error` | value + name |
+| `Typography/Body/Medium` | `AppTheme.typography.bodyMedium` | size, weight, lineHeight |
+| `Spacing/MD` | `AppTheme.spacing.md` | dp value |
+
+---
+
+## Component Verification
+
+```
+/figma-verify component PrimaryButton
+
+Figma component: https://www.figma.com/file/ABC123?node-id=10:20
+Implementation: app/src/main/java/com/example/core/ui/components/PrimaryButton.kt
+
+Check:
+- All variants match (enabled, disabled, loading)
+- Corner radius matches (Figma: 8dp, code: ?)
+- Typography correct (Figma: Label/Large, code: ?)
+- Minimum touch target ≥ 48dp (Figma spec + code)
+- Padding matches (Figma: 16dp horizontal, 12dp vertical, code: ?)
+- Icon size and position if present
+```
+
+---
+
+## Verification Report Format
+
+```
+## Figma Verification Report
+**Screen/Component:** ProfileScreen
+**Figma Frame:** https://www.figma.com/file/...?node-id=42:100
+**Implementation:** feature/profile/ProfileScreen.kt
+**Date:** <today>
+
+### Summary
+8 issues found: 1 critical, 3 major, 4 minor.
+
+### Critical 🔴
+- Avatar image uses hardcoded size 56dp — Figma spec is 64dp
+  Figma: node "Avatar/Large" → 64×64dp
+  Code: ProfileScreen.kt:34 → `Modifier.size(56.dp)`
+  Fix: `Modifier.size(AppTheme.spacing.avatarLarge)` → add token
+
+### Major 🟠
+- Name text uses bodyMedium — Figma uses titleSmall (600 weight)
+  Figma: font-size 14sp, font-weight 600, line-height 20sp
+  Code: style = AppTheme.typography.bodyMedium (400 weight)
+
+- Bio text color is onSurface — Figma uses onSurfaceVariant (#49454F)
+  Code: color = AppTheme.colors.onSurface
+  Fix: color = AppTheme.colors.onSurfaceVariant (add token if missing)
+
+- Edit button missing in dark mode — Figma shows it in both light and dark variants
+
+### Minor 🟡
+- Section header spacing: Figma 24dp top, code 20dp (AppTheme.spacing.lg → 24dp would be correct)
+- Divider opacity: Figma 12%, code uses Divider() default (no opacity set)
+- Stats row gap: Figma 8dp, code 12dp
+- Screen bottom padding: Figma 32dp, code 24dp
+
+### Matches ✅
+- Color tokens: primary, onPrimary, surface, background — all correct
+- Typography: body copy, caption — correct
+- Corner radius on cards: 12dp ✅
+- Icon sizes in toolbar: 24dp ✅
+- Navigation bar handling (WindowInsets) ✅
+
+### Token Gaps Found
+The following Figma Variables have no code equivalent:
+- `Color/Surface/Variant` → add `onSurfaceVariant` to AppColors
+- `Spacing/Avatar/Large` → add `avatarLarge = 64.dp` to AppSpacing
+```
+
+---
+
+## Checking Design Handoff Quality
+
+Before implementing, use Figma MCP to extract the full spec:
+
+```
+Before I implement the CheckoutScreen, extract from this Figma frame:
+https://www.figma.com/file/ABC123?node-id=99:200
+
+Give me:
+1. Full layout breakdown (containers, scroll behaviour, padding)
+2. All text styles used (map to our AppTypography tokens)
+3. All colors used (map to our AppColors tokens)
+4. Component instances used (map to our existing components in :core:ui)
+5. Any interactive states shown (default, loading, error, empty)
+6. Responsive behaviour (if any breakpoints or min-widths defined)
+7. Figma Variables used — flag any that don't exist in our token system yet
+```
+
+This replaces manual design handoff inspection and gives Claude exact values before writing a single line of Compose code.
