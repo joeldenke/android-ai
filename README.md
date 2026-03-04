@@ -56,9 +56,12 @@ Run from your Android project root:
 skills/               ← source of truth — edit these
 agents/               ← source of truth — edit these
 hooks/                ← source of truth — edit these
-claude/               ← all Claude Code config consolidated here
-  CLAUDE.md -> ../CLAUDE.md   (symlink — real file at root)
-  .claude/            ← Claude Code reads this folder
+claude/               ← plugin root (Claude Code reads from here via marketplace)
+  CLAUDE.md           ← this file
+  agents.md -> ../agents.md   (symlink)
+  agents/   -> ../agents/     (symlink)
+  skills/   -> ../skills/     (symlink)
+  .claude/            ← Claude Code config folder
     agents -> ../../agents   (symlink)
     hooks  -> ../../hooks    (symlink)
     skills -> ../../skills   (symlink)
@@ -66,7 +69,6 @@ claude/               ← all Claude Code config consolidated here
   .claude-plugin/     ← marketplace plugin definition
     marketplace.json
     plugin.json
-CLAUDE.md             (real file — paths resolve from root)
 .claude -> claude/.claude
 .claude-plugin -> claude/.claude-plugin
 .cursor/rules/        (auto-generated — do not edit)
