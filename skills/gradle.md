@@ -15,6 +15,8 @@ When the user runs `/gradle [task]`, analyse the Gradle setup and perform the re
 | `/gradle new-module <name> <type>` | Scaffold convention plugin + module |
 | `/gradle r8 <module>` | Tune R8/ProGuard rules for a module |
 | `/gradle versions` | Check all dependencies for newer versions |
+| `/gradle lint` | Configure and enforce lint with zero-warnings policy |
+| `/gradle signing` | Set up signing with keystore.properties / env-var fallback |
 
 ---
 
@@ -510,6 +512,314 @@ buildFeatures { buildConfig = true }
 
 ---
 
+## Rule 8 — Lint Configuration (Zero-Warnings Policy)
+
+Enforce lint as part of every CI check. The zero-warnings policy is declared in the project-wide
+CLAUDE.md — configure it here.
+
+```kotlin
+// app/build.gradle.kts (or a convention plugin shared across modules)
+android {
+    lint {
+        abortOnError     = true         // fail the build on any error
+        warningsAsErrors = true         // treat every warning as an error
+        checkDependencies = true        // propagate lint checks into dependencies
+        baseline         = file("lint-baseline.xml")   // suppress pre-existing issues only
+
+        // Disable noisy rules that produce false positives in this project
+        disable += setOf("TypographyFractions", "TypographyQuotes")
+
+        // Enable RTL checks missed by default
+        enable  += setOf("RtlHardcoded", "RtlCompat", "RtlEnabled")
+
+        // Scope lint to the checks you actually care about on CI (optional — speeds up CI)
+        // checkOnly += setOf("NewApi", "InlinedApi", "UseSdkSuppress")
+
+        xmlReport  = false              // human report only on local runs
+        htmlReport = true
+        htmlOutput = file("${project.rootDir}/lint-report.html")
+    }
+}
+```
+
+**Generate a baseline to suppress existing issues when adopting lint on a brownfield project:**
+
+```bash
+# Run once, commit the baseline, then fix issues incrementally
+./gradlew lintDebug -PgenerateBaseline=true
+git add app/lint-baseline.xml
+git commit -m "chore: add lint baseline"
+```
+
+**CI job:**
+
+```yaml
+# .github/workflows/pr-check.yml
+- name: Run lint
+  run: ./gradlew lintRelease
+- name: Upload lint report
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: lint-report
+    path: lint-report.html
+```
+
+---
+
+## Rule 9 — Manifest Placeholders & Shared Build Values
+
+Avoid duplicating values between `AndroidManifest.xml`, Kotlin source, and string resources.
+Inject them from a single source of truth in `build.gradle.kts`.
+
+```kotlin
+// app/build.gradle.kts
+android {
+    defaultConfig {
+        // Derive the FileProvider authority from applicationId so it's always unique
+        val filesAuthority = "$applicationId.files"
+        manifestPlaceholders["filesAuthority"] = filesAuthority
+        buildConfigField("String", "FILES_AUTHORITY", "\"$filesAuthority\"")
+
+        // Expose a stable API base URL per flavour — see Rule 7
+        // (buildConfigField is set per productFlavor for environment-specific values)
+    }
+
+    buildTypes {
+        release {
+            // Timestamp baked in at build time (use "0" in debug to keep builds reproducible)
+            val minutesSinceEpoch = (System.currentTimeMillis() / 60_000).toString()
+            buildConfigField("String", "BUILD_TIME", "\"$minutesSinceEpoch\"")
+            resValue("string", "build_time", minutesSinceEpoch)
+        }
+        debug {
+            buildConfigField("String", "BUILD_TIME", "\"0\"")
+            resValue("string", "build_time", "0")
+        }
+    }
+
+    buildFeatures { buildConfig = true }
+}
+```
+
+Use the placeholder in `AndroidManifest.xml`:
+
+```xml
+<provider
+    android:name="androidx.core.content.FileProvider"
+    android:authorities="${filesAuthority}"
+    android:exported="false"
+    android:grantUriPermissions="true">
+    <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/file_paths" />
+</provider>
+```
+
+Access in Kotlin:
+
+```kotlin
+// Always read from BuildConfig — never duplicate the string in Kotlin source
+val uri = FileProvider.getUriForFile(context, BuildConfig.FILES_AUTHORITY, file)
+Log.d(TAG, "Built at minute ${BuildConfig.BUILD_TIME}")
+```
+
+**Per-variant source sets** — use when a variant needs its own resources or manifest fragment:
+
+```kotlin
+android {
+    sourceSets {
+        getByName("dev") {
+            res.srcDirs("src/dev/res")
+            manifest.srcFile("src/dev/AndroidManifest.xml")
+        }
+    }
+}
+```
+
+---
+
+## Rule 10 — Signing Security (keystore.properties / env-var fallback)
+
+Never commit credentials. Load signing config from a local file with a CI env-var fallback.
+
+```kotlin
+// app/build.gradle.kts
+import java.util.Properties
+
+// 1. Load keystore.properties (local dev) — file is in .gitignore
+val keystoreProps = Properties().apply {
+    rootProject.file("keystore.properties").takeIf { it.exists() }
+        ?.inputStream()?.use { load(it) }
+}
+
+// 2. Helper reads the local file first, then falls back to a CI env var
+fun keystoreValue(propKey: String, envKey: String): String? =
+    keystoreProps.getProperty(propKey) ?: System.getenv(envKey)
+
+android {
+    signingConfigs {
+        create("release") {
+            storeFile   = keystoreValue("storeFile",    "KEYSTORE_FILE")?.let(::file)
+            storePassword = keystoreValue("storePassword", "KEYSTORE_PASSWORD")
+            keyAlias    = keystoreValue("keyAlias",     "KEY_ALIAS")
+            keyPassword = keystoreValue("keyPassword",  "KEY_PASSWORD")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+}
+```
+
+`keystore.properties` (local only — **add to `.gitignore`**):
+
+```properties
+storeFile=../release.jks
+storePassword=myStorePassword
+keyAlias=my-alias
+keyPassword=myKeyPassword
+```
+
+`.gitignore` entry:
+
+```gitignore
+keystore.properties
+*.jks
+*.keystore
+```
+
+CI (GitHub Actions) — store secrets as repository secrets, then expose as env vars:
+
+```yaml
+- name: Assemble release APK
+  env:
+    KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+    KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+    KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+  run: ./gradlew assembleRelease
+```
+
+---
+
+## Rule 11 — AGP Variant & Artifact APIs (from android/gradle-recipes)
+
+Prefer the `androidComponents` DSL over the legacy `android.applicationVariants.all` iterator.
+The recipes at [android/gradle-recipes](https://github.com/android/gradle-recipes) are the
+canonical reference for all AGP 9.x public APIs.
+
+### Disable unwanted variant combinations
+
+```kotlin
+// app/build.gradle.kts
+androidComponents {
+    beforeVariants { variantBuilder ->
+        // Disable demo × minApi21 — no device coverage justifies this combination
+        if (variantBuilder.productFlavors.containsAll(
+                listOf("mode" to "demo", "api" to "minApi21")
+            )
+        ) {
+            variantBuilder.enabled = false
+        }
+
+        // Disable unit tests for release builds on CI (saves ~40 % of test time)
+        if (variantBuilder.buildType == "release") {
+            variantBuilder.enableUnitTest = false
+        }
+    }
+}
+```
+
+### Dynamic version codes per ABI split
+
+```kotlin
+// app/build.gradle.kts
+import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+
+val abiVersionCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abiName = output.filters.find { it.filterType == ABI }?.identifier
+            val abiCode = abiVersionCodes[abiName] ?: return@forEach
+            // Encode ABI in the high bits so Play always selects the right APK
+            output.versionCode.set(abiCode * 100_000 + (output.versionCode.get() ?: 0))
+        }
+    }
+}
+```
+
+### Programmatic BuildConfig fields
+
+```kotlin
+// build-logic/convention/src/main/kotlin/BuildConfigConventionPlugin.kt
+// (recipe: addCustomBuildConfigFields)
+androidComponents {
+    onVariants { variant ->
+        variant.buildConfigFields.put(
+            "GIT_SHA",
+            BuildConfigField("String", "\"${gitSha()}\"", "Current git commit SHA"),
+        )
+    }
+}
+
+fun gitSha(): String = ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+    .start().inputStream.bufferedReader().readLine()?.trim() ?: "unknown"
+```
+
+### Artifact transformation (worker-enabled, cacheable)
+
+```kotlin
+// (recipe: workerEnabledTransformation / transformAllClasses)
+// Register a cacheable task that transforms all .class files (e.g., for custom instrumentation)
+androidComponents {
+    onVariants { variant ->
+        val taskProvider = project.tasks.register<TransformClassesTask>(
+            "transform${variant.name.replaceFirstChar { it.uppercaseChar() }}Classes"
+        )
+        variant.artifacts
+            .forScope(ScopedArtifacts.Scope.PROJECT)
+            .use(taskProvider)
+            .toTransform(
+                ScopedArtifact.CLASSES,
+                TransformClassesTask::inputJars,
+                TransformClassesTask::inputDirectories,
+                TransformClassesTask::outputClasses,
+            )
+    }
+}
+
+@CacheableTask
+abstract class TransformClassesTask : DefaultTask() {
+    @get:Classpath abstract val inputJars: ListProperty<RegularFile>
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val inputDirectories: ListProperty<Directory>
+    @get:OutputFile abstract val outputClasses: RegularFileProperty
+
+    @get:Inject abstract val workers: WorkerExecutor
+
+    @TaskAction
+    fun transform() {
+        // Use workers for parallel processing — see gradle-recipes/workerEnabledTransformation
+        workers.noIsolation().submit(TransformAction::class.java) { params ->
+            params.inputJars.set(inputJars)
+            params.inputDirs.set(inputDirectories)
+            params.output.set(outputClasses)
+        }
+    }
+}
+```
+
+> For the full catalogue of AGP recipes (manifest transforms, custom source types, scoped
+> artifacts, fused libraries, KMP), browse
+> [github.com/android/gradle-recipes](https://github.com/android/gradle-recipes).
+
+---
+
 ## Health Check Output Format
 
 ```
@@ -520,17 +830,26 @@ buildFeatures { buildConfig = true }
 ### Critical 🔴
 - Groovy DSL found in :feature:profile/build.gradle — must convert to Kotlin DSL
 - Hardcoded version "2.1.0" in :core:data/build.gradle.kts:14 — move to libs.versions.toml
+- keystore.properties committed to git — remove immediately, rotate credentials, add to .gitignore
 
 ### Warnings 🟠
 - Configuration cache not enabled — add org.gradle.configuration-cache=true
 - R8 full mode disabled — add android.enableR8.fullMode=true
+- lint.warningsAsErrors not set — zero-warnings policy not enforced (Rule 8)
+- signingConfig uses hardcoded credentials — migrate to keystore.properties / env vars (Rule 10)
+- android.applicationVariants.all used in :app — migrate to androidComponents.onVariants (Rule 11)
 
 ### Opportunities 🟡
 - 3 dependency bundles can be extracted in libs.versions.toml
 - :feature:home and :feature:profile share identical build config — extract convention plugin
+- No lint baseline found — run ./gradlew lintDebug -PgenerateBaseline=true to suppress legacy issues
+- manifestPlaceholders set inline as strings — derive from applicationId via buildConfigField (Rule 9)
+- demo × minApi21 variant enabled but has zero test coverage — disable with beforeVariants (Rule 11)
 
 ### Good ✅
 - All modules use Kotlin DSL
 - Version catalog present and complete
 - Parallel builds enabled
+- Lint configured with abortOnError = true
+- Signing credentials loaded from keystore.properties
 ```
