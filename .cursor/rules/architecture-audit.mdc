@@ -70,10 +70,10 @@ Build dependency graph; flag :feature:x → :feature:y edges
 Rule: No circular dependencies
 Build full dependency graph; detect cycles
 
-Rule: Hilt scopes correct
-@Singleton: repositories, network clients, database
-@ActivityScoped: navigation state
-@ViewModelScoped: use cases (if stateful)
+Rule: DI scopes correct (regardless of framework)
+Singleton scope: repositories, network clients, database
+Activity/navigation scope: navigation state
+ViewModel scope: use cases (if stateful)
 
 Rule: No GlobalScope usage
 grep -r "GlobalScope" --include="*.kt"
@@ -202,7 +202,7 @@ class HomeViewModel @Inject constructor(
 |---|---|---|
 | God ViewModel (> 300 lines) | `wc -l *ViewModel.kt \| sort -rn` | 🟠 |
 | Business logic in Composable | `@Composable fun.*{[\s\S]*\.launch\|\.collect` | 🔴 |
-| Passing Activity to ViewModel | `Activity\|Fragment` injected via Hilt | 🔴 |
+| Passing Activity to ViewModel | `Activity\|Fragment` in `@Inject constructor` of `*ViewModel` | 🔴 |
 | Static singleton state | `companion object.*var\|object.*var` | 🟠 |
 | Feature-to-feature dependency | `implementation(project(":feature:` in another feature | 🔴 |
 | Domain importing Android | `import android` in `:domain` module | 🔴 |

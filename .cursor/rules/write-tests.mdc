@@ -218,24 +218,19 @@ class ItemRepositoryImplTest {
 ## Compose UI Test Template
 
 ```kotlin
-@HiltAndroidTest
+// Compose UI test — no DI framework required; inject fakes directly via setContent
 class HomeScreenTest {
 
-    @get:Rule(order = 0) val hiltRule = HiltAndroidRule(this)
-    @get:Rule(order = 1) val composeRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeRule = createComposeRule()
 
-    @Inject lateinit var fakeRepository: FakeItemRepository
-
-    @Before
-    fun setUp() {
-        hiltRule.inject()
-    }
+    private val fakeRepository = FakeItemRepository()
 
     @Test
     fun `shows loading indicator while data loads`() {
         fakeRepository.setLoading()
+        val viewModel = HomeViewModel(GetItemsUseCase(fakeRepository))
 
-        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+        composeRule.setContent { AppTheme { HomeScreen(viewModel = viewModel, onNavigateToDetail = {}) } }
 
         composeRule.onNodeWithContentDescription("Loading items").assertIsDisplayed()
     }
@@ -243,8 +238,9 @@ class HomeScreenTest {
     @Test
     fun `shows item list when data available`() {
         fakeRepository.setItems(listOf(TestData.item(title = "Test Item")))
+        val viewModel = HomeViewModel(GetItemsUseCase(fakeRepository))
 
-        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+        composeRule.setContent { AppTheme { HomeScreen(viewModel = viewModel, onNavigateToDetail = {}) } }
 
         composeRule.onNodeWithText("Test Item").assertIsDisplayed()
     }
@@ -252,8 +248,9 @@ class HomeScreenTest {
     @Test
     fun `shows error message and retry button on failure`() {
         fakeRepository.setError(IOException("Network failure"))
+        val viewModel = HomeViewModel(GetItemsUseCase(fakeRepository))
 
-        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+        composeRule.setContent { AppTheme { HomeScreen(viewModel = viewModel, onNavigateToDetail = {}) } }
 
         composeRule.onNodeWithText("Network failure").assertIsDisplayed()
         composeRule.onNodeWithText("Retry").assertIsDisplayed()
@@ -262,8 +259,9 @@ class HomeScreenTest {
     @Test
     fun `tapping retry triggers reload`() {
         fakeRepository.setError(IOException("Network failure"))
+        val viewModel = HomeViewModel(GetItemsUseCase(fakeRepository))
 
-        composeRule.setContent { AppTheme { HomeScreen(onNavigateToDetail = {}) } }
+        composeRule.setContent { AppTheme { HomeScreen(viewModel = viewModel, onNavigateToDetail = {}) } }
 
         composeRule.onNodeWithText("Retry").performClick()
 
