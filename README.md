@@ -29,7 +29,7 @@ Run from your Android project root:
 
 | Tool | Command | What you get |
 |---|---|---|
-| **Cursor** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) cursor` | `.cursor/rules/` — 15 MDC rules |
+| **Cursor** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) cursor` | `.cursor/rules/` — 16 MDC rules |
 | **GitHub Copilot** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) copilot` | `.github/copilot-instructions.md` |
 | **Codex CLI** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) codex` | `AGENTS.md` |
 | **Gemini CLI** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) gemini` | `skills/` |
@@ -158,6 +158,7 @@ Use `/skill-name` as a slash command (Claude Code), or reference `skills/<name>.
 | `/architecture-audit` | Audits for layer violations and anti-patterns |
 | `/debug-performance <area>` | Finds recomposition, memory, or jank issues |
 | `/write-tests <target>` | Generates unit + integration + UI tests |
+| `/dependency-injection [task]` | Sets up or audits DI (Hilt, Koin, Anvil, Metro, manual) |
 | `/gradle [task]` | Build health check, optimize, manage deps, R8 |
 | `/github-actions-android [task]` | PR check, release, Firebase Test Lab |
 | `/adb [task]` | Device inspection, logcat, performance profiling |

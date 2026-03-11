@@ -83,6 +83,7 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Architecture Audit | `/architecture-audit` | Audits current project for layer violations, coupling, anti-patterns |
 | Debug Performance | `/debug-performance <screen or area>` | Identifies Compose recomposition, memory, startup, or jank issues |
 | Write Tests | `/write-tests <target>` | Generates comprehensive test suite (unit + integration + UI) |
+| Dependency Injection | `/dependency-injection [task]` | Sets up or audits DI — Hilt, Koin, Anvil, Metro, or manual injection |
 
 ### Build & CI/CD
 

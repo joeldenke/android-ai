@@ -8,7 +8,7 @@ alwaysApply: true
 - **Language**: Kotlin only — no Java in new code
 - **Min SDK**: 26+ (use modern APIs freely)
 - **Architecture**: MVVM + Clean Architecture (UI / Domain / Data layers)
-- **DI**: Hilt
+- **DI**: Framework-agnostic — works with Hilt, Koin, Anvil, Metro, Dagger, or manual injection; patterns use constructor injection and interfaces throughout
 - **Async**: Kotlin Coroutines + Flow (no RxJava, no callbacks)
 - **UI**: Jetpack Compose — design-system-agnostic token model (Material3 optional, not required)
 - **Design tokens**: `@Immutable` data classes + `CompositionLocal` — components never read raw values
