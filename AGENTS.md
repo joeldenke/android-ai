@@ -96,6 +96,7 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Release | `/release [task]` | Signing config, Play Store track management, versioning, GitHub releases |
 | Baseline Profile | `/baseline-profile [task]` | Generate and verify Macrobenchmark baseline profiles for startup performance |
 | Android CLI | `/android-cli [task]` | Android CLI 1.0 — agent-ready build/run/test, official skill management, Journeys, CI |
+| Performance Analyzer | `/performance-analyzer [task]` | Android Performance Analyzer (APA) — Perfetto traces, AI-assisted root-cause, Perfetto SQL |
 
 ### Device & QA
 
