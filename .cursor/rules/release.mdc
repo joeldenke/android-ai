@@ -1,0 +1,717 @@
+---
+description: End-to-end Android release engineering — version bumping, keystore signing, App Bundle production, Gradle Play Publisher promotion across Play Store tracks, GitHub Releases with AAB/APK artifacts, Conventional-Commits changelog generation, R8 full mode verification, and a comprehensive pre-release safety checklist.
+alwaysApply: false
+---
+
+
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/release` | Run the full pre-release checklist — version, signing, R8, manifest, logging, tests |
+| `/release prepare` | Bump `versionName` / `versionCode`, regenerate `CHANGELOG.md` from Conventional Commits |
+| `/release sign` | Generate keystore, wire `signingConfigs`, configure `local.properties` + CI env vars |
+| `/release play-store` | Configure Gradle Play Publisher, publish to internal track, promote through alpha/beta/production |
+| `/release github` | Build signed AAB + universal APK, create GitHub Release with artifacts and changelog body |
+
+---
+
+## Rule 1 — Never Hardcode Credentials
+
+Keystore passwords, key aliases, service account JSON, and signing key material are **never** committed. Read them from `local.properties` (developer machine) or environment variables (CI). The keystore binary itself is never committed; on CI it is base64-decoded into `${runner.temp}` and shredded after use.
+
+```
+# .gitignore — must contain
+local.properties
+*.jks
+*.keystore
+keystore.properties
+play-service-account.json
+```
+
+```properties
+# local.properties — developer machine ONLY, gitignored
+sdk.dir=/Users/you/Library/Android/sdk
+RELEASE_STORE_FILE=/Users/you/keystores/example-release.jks
+RELEASE_STORE_PASSWORD=********
+RELEASE_KEY_ALIAS=example-release
+RELEASE_KEY_PASSWORD=********
+```
+
+```kotlin
+// app/build.gradle.kts — read local.properties safely
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+fun prop(name: String): String? =
+    localProps.getProperty(name) ?: System.getenv(name)
+```
+
+---
+
+## Rule 2 — Generate the Keystore Once, Back It Up Twice
+
+Use `keytool` to generate an RSA-2048 (or stronger) keystore valid for at least 25 years. The Play Store requires upload key validity through 2033 minimum.
+
+```bash
+# Generate a release keystore — run ONCE per app
+keytool -genkeypair \
+  -v \
+  -keystore example-release.jks \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -alias example-release \
+  -storetype PKCS12
+
+# Verify the keystore contents
+keytool -list -v -keystore example-release.jks
+```
+
+**Backup checklist (do all three):**
+- Encrypted password manager entry with keystore password, key alias, key password.
+- Encrypted offline backup of the `.jks` file (1Password / Bitwarden vault attachment, or hardware-encrypted USB stored in a safe).
+- Use **Play App Signing** in the Play Console so Google holds the production signing key; you only manage the upload key and can rotate it via key reset.
+
+Losing the upload key without Play App Signing enabled means you can never publish updates under the same `applicationId`. Enrol every new app in Play App Signing on first publish.
+
+---
+
+## Rule 3 — `signingConfigs` Block
+
+```kotlin
+// app/build.gradle.kts
+android {
+    signingConfigs {
+        create("release") {
+            storeFile     = prop("RELEASE_STORE_FILE")?.let(::file)
+            storePassword = prop("RELEASE_STORE_PASSWORD")
+            keyAlias      = prop("RELEASE_KEY_ALIAS")
+            keyPassword   = prop("RELEASE_KEY_PASSWORD")
+
+            // Modern signing schemes — Android 11+ requires v2; v4 adds incremental install
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled    = true
+            isShrinkResources  = true
+            isDebuggable       = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix   = "-debug"
+            isDebuggable        = true
+            // Debug uses the auto-generated debug keystore — never the release one
+        }
+    }
+}
+```
+
+**CI environment variables (GitHub Actions, GitLab CI, Bitrise):**
+
+```
+RELEASE_KEYSTORE_BASE64     base64 -i example-release.jks   (paste into Secrets)
+RELEASE_STORE_PASSWORD
+RELEASE_KEY_ALIAS
+RELEASE_KEY_PASSWORD
+PLAY_SERVICE_ACCOUNT_JSON   GCP service account JSON; needs "Release Manager" role on the app
+GITHUB_TOKEN                provided automatically by GitHub Actions
+```
+
+```yaml
+# In CI: decode to runner.temp, never the workspace
+- name: Decode keystore
+  run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > ${{ runner.temp }}/release.jks
+
+- name: Build release bundle
+  env:
+    RELEASE_STORE_FILE:     ${{ runner.temp }}/release.jks
+    RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+    RELEASE_KEY_ALIAS:      ${{ secrets.RELEASE_KEY_ALIAS }}
+    RELEASE_KEY_PASSWORD:   ${{ secrets.RELEASE_KEY_PASSWORD }}
+  run: ./gradlew bundleRelease
+
+- name: Shred keystore
+  if: always()
+  run: shred -u ${{ runner.temp }}/release.jks
+```
+
+---
+
+## Rule 4 — Version Management
+
+Treat `versionName` as semantic (`MAJOR.MINOR.PATCH`) and `versionCode` as a strictly monotonic integer. Drive both from a single source of truth — `libs.versions.toml` for the name; git commit count or CI build number for the code.
+
+```toml
+# gradle/libs.versions.toml
+[versions]
+app-version-name = "1.4.2"
+```
+
+```kotlin
+// app/build.gradle.kts
+import org.gradle.api.GradleException
+
+fun gitCommitCount(): Int =
+    try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .redirectErrorStream(true)
+            .start()
+        process.inputStream.bufferedReader().readText().trim().toInt()
+            .also { process.waitFor() }
+    } catch (e: Exception) {
+        throw GradleException("Failed to compute versionCode from git: ${e.message}")
+    }
+
+android {
+    defaultConfig {
+        // CI build number wins on CI, git commit count locally — both monotonic
+        versionCode = System.getenv("CI_BUILD_NUMBER")?.toIntOrNull() ?: gitCommitCount()
+        versionName = libs.versions.app.version.name.get()
+    }
+}
+```
+
+**Bump policy (driven by Conventional Commits since the last tag):**
+
+| Commits include | Bump |
+|---|---|
+| `feat!:` or `BREAKING CHANGE:` footer | MAJOR |
+| `feat:` (no breaking) | MINOR |
+| `fix:`, `perf:`, `refactor:`, etc. only | PATCH |
+
+```bash
+# /release prepare — fully scripted bump
+LAST_TAG=$(git describe --tags --abbrev=0)
+git log "$LAST_TAG"..HEAD --pretty=format:"%s" > /tmp/commits.txt
+
+# Decide bump
+if grep -qE "^(feat!|fix!|.*BREAKING CHANGE)" /tmp/commits.txt; then BUMP=major
+elif grep -qE "^feat(\(|:)" /tmp/commits.txt;                       then BUMP=minor
+else                                                                     BUMP=patch
+fi
+echo "Detected bump: $BUMP"
+
+# Edit libs.versions.toml manually OR use a tool like semantic-release / cz-cli
+```
+
+Never reset `versionCode`. Even for a major version bump it keeps incrementing — the Play Store rejects uploads with a `versionCode` less than or equal to the current production track.
+
+---
+
+## Rule 5 — App Bundle (AAB) vs APK
+
+**Always ship AAB to the Play Store.** Universal APKs exist only for GitHub Releases, sideloading, and Firebase App Distribution.
+
+| Format | When | Task |
+|---|---|---|
+| `.aab` (App Bundle) | Play Store, App Signing required | `./gradlew bundleRelease` |
+| Split APKs (per-ABI / per-density) | Stores that don't accept AAB (Amazon, Samsung Galaxy Store) | `./gradlew assembleRelease` |
+| Universal APK | GitHub Releases, manual sideload, QA distribution | enable in `bundle { ... }` block, extracted from AAB via `bundletool` |
+
+```kotlin
+// app/build.gradle.kts — control AAB splits and ship a universal APK alongside it
+android {
+    bundle {
+        language { enableSplit = true }
+        density  { enableSplit = true }
+        abi      { enableSplit = true }
+    }
+
+    // Generates a universal APK as part of bundleRelease — handy for GitHub releases
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+}
+```
+
+```bash
+# Build outputs
+./gradlew bundleRelease        # → app/build/outputs/bundle/release/app-release.aab
+./gradlew assembleRelease      # → app/build/outputs/apk/release/app-release-*.apk
+
+# Extract install-ready APKs from an AAB for verification
+bundletool build-apks \
+  --bundle=app/build/outputs/bundle/release/app-release.aab \
+  --output=app-release.apks \
+  --mode=universal \
+  --ks=example-release.jks \
+  --ks-key-alias=example-release
+```
+
+---
+
+## Rule 6 — R8 Full Mode Verification
+
+R8 full mode is mandatory for release. Verify shrinking actually happened — empty `mapping.txt` or a release APK the same size as debug means something silently disabled it.
+
+```properties
+# gradle.properties — checked into repo
+android.enableR8.fullMode=true
+```
+
+```kotlin
+// app/build.gradle.kts
+android {
+    buildTypes {
+        release {
+            isMinifyEnabled   = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+}
+```
+
+```bash
+# After bundleRelease, verify R8 did its job
+./gradlew bundleRelease
+
+# 1. mapping.txt should exist and contain thousands of obfuscated lines
+wc -l app/build/outputs/mapping/release/mapping.txt
+# expect: 50000+ lines on a real app; if 0 or missing → R8 didn't run
+
+# 2. Resource shrinking report should show removed resources
+cat app/build/outputs/mapping/release/resources.txt | head -50
+
+# 3. Compare AAB size to a debug APK — release should be significantly smaller
+ls -lh app/build/outputs/bundle/release/app-release.aab
+ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+# 4. Decompile a sample class to confirm obfuscation
+unzip -p app-release.aab base/dex/classes.dex | head -c 200 | xxd | head -5
+
+# 5. Symbolicate a stack trace — required for crash reporting
+retrace app/build/outputs/mapping/release/mapping.txt < obfuscated-stacktrace.txt
+```
+
+Upload `mapping.txt` to Play Console and Crashlytics on every release — Gradle Play Publisher and the Crashlytics plugin do this automatically when configured.
+
+---
+
+## Rule 7 — Gradle Play Publisher
+
+Use [Gradle Play Publisher](https://github.com/Triple-T/gradle-play-publisher) to ship from CI. It handles AAB upload, mapping file upload, listing assets, and track promotion.
+
+```toml
+# gradle/libs.versions.toml
+[versions]
+play-publisher = "3.12.1"
+
+[plugins]
+play-publisher = { id = "com.github.triplet.play", version.ref = "play-publisher" }
+```
+
+```kotlin
+// app/build.gradle.kts
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.play.publisher)
+}
+
+play {
+    // Path to a GCP service account JSON with "Release Manager" role on the Play Console app
+    serviceAccountCredentials.set(
+        rootProject.file(prop("PLAY_SERVICE_ACCOUNT_JSON_PATH") ?: "play-service-account.json")
+    )
+
+    track.set("internal")                // internal → alpha → beta → production
+    releaseStatus.set(com.github.triplet.gradle.androidpublisher.ReleaseStatus.COMPLETED)
+    defaultToAppBundles.set(true)        // always upload AAB, never APK
+    artifactDir.set(file("build/outputs/bundle/release"))
+
+    // Staged rollout — start at 10% on production
+    userFractionEnabled.set(false)       // set true for staged rollouts
+    // userFraction.set(0.1)             // 10% rollout
+
+    // Release notes — read from fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt
+    // Gradle Play Publisher picks these up automatically
+}
+```
+
+```
+fastlane/metadata/android/
+  en-US/
+    title.txt
+    short_description.txt
+    full_description.txt
+    changelogs/
+      142.txt          # release notes for versionCode 142
+      143.txt
+```
+
+**Tasks:**
+
+```bash
+# Upload to internal track (fast review, ~minutes)
+./gradlew publishReleaseBundle
+
+# Promote internal → alpha (no rebuild — Play Store just moves the artifact)
+./gradlew promoteArtifact --from-track internal --promote-track alpha
+
+# Promote alpha → beta
+./gradlew promoteArtifact --from-track alpha --promote-track beta
+
+# Promote beta → production with a 10% staged rollout
+./gradlew promoteArtifact --from-track beta --promote-track production --user-fraction 0.1
+
+# Increase rollout
+./gradlew promoteArtifact --from-track production --user-fraction 0.5
+./gradlew promoteArtifact --from-track production --user-fraction 1.0
+```
+
+**Service account setup (one-time, in GCP Console):**
+1. Create a service account in your GCP project.
+2. Grant it the role `Service Account User` in GCP IAM.
+3. In Play Console → Settings → API access → invite the service account email.
+4. Grant it **Release Manager** permission on the specific app (not org-wide).
+5. Download the JSON key; store as `PLAY_SERVICE_ACCOUNT_JSON` CI secret.
+
+---
+
+## Rule 8 — GitHub Release Workflow
+
+Triggered on annotated tag push (`vX.Y.Z`). Builds, signs, uploads AAB to Play internal track, then creates a GitHub Release with the AAB + universal APK attached and the changelog as the body.
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write        # required to create GitHub Releases
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel an in-flight release
+
+jobs:
+  release:
+    name: Build · Sign · Publish · Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production   # GitHub Environment with required reviewers
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0      # full history for changelog generation
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12  # v4.7.0
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c  # v5.0.2
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Decode keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > ${{ runner.temp }}/release.jks
+
+      - name: Decode Play service account
+        run: echo "${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}" > ${{ runner.temp }}/play-service-account.json
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="$LAST_TAG..HEAD"
+          fi
+          {
+            echo 'body<<CHANGELOG_EOF'
+            echo "## What's Changed"
+            echo ""
+            echo "### Features"
+            git log "$RANGE" --pretty=format:"- %s (%h)" --grep="^feat" || true
+            echo ""
+            echo "### Fixes"
+            git log "$RANGE" --pretty=format:"- %s (%h)" --grep="^fix" || true
+            echo ""
+            echo "### Other"
+            git log "$RANGE" --pretty=format:"- %s (%h)" --invert-grep --grep="^feat" --grep="^fix" --grep="^chore" || true
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build AAB + universal APK
+        env:
+          CI_BUILD_NUMBER:                 ${{ github.run_number }}
+          RELEASE_STORE_FILE:              ${{ runner.temp }}/release.jks
+          RELEASE_STORE_PASSWORD:          ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS:               ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD:            ${{ secrets.RELEASE_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON_PATH:  ${{ runner.temp }}/play-service-account.json
+        run: ./gradlew bundleRelease assembleRelease
+
+      - name: Verify R8 ran
+        run: |
+          test -s app/build/outputs/mapping/release/mapping.txt \
+            || (echo "::error::mapping.txt missing or empty — R8 did not run" && exit 1)
+
+      - name: Publish to Play Store (internal track)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON_PATH: ${{ runner.temp }}/play-service-account.json
+          RELEASE_STORE_FILE:             ${{ runner.temp }}/release.jks
+          RELEASE_STORE_PASSWORD:         ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS:              ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD:           ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew publishReleaseBundle --track internal
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191  # v2.0.8
+        with:
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: false
+          files: |
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/apk/release/*-universal-release.apk
+            app/build/outputs/mapping/release/mapping.txt
+
+      - name: Shred secrets
+        if: always()
+        run: |
+          shred -u ${{ runner.temp }}/release.jks            || true
+          shred -u ${{ runner.temp }}/play-service-account.json || true
+```
+
+**Tag and release flow:**
+```bash
+# 1. Land /release prepare PR (bumps version, regenerates CHANGELOG.md)
+# 2. Tag the merge commit on main
+git checkout main && git pull
+git tag -a v1.4.2 -m "Release v1.4.2"
+git push origin v1.4.2
+
+# 3. CI builds, signs, uploads to Play internal, creates GitHub Release
+# 4. QA validates on Play internal track
+# 5. Promote through alpha → beta → production via Gradle Play Publisher tasks
+```
+
+---
+
+## Rule 9 — Conventional Commits Changelog
+
+`CHANGELOG.md` is regenerated by `/release prepare` from commit messages since the last tag. Follows [Keep a Changelog](https://keepachangelog.com) format and [Conventional Commits](https://www.conventionalcommits.org/) parsing.
+
+```markdown
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.4.2] - 2026-05-26
+
+### Added
+- User profile editing screen (#142)
+- Offline-first sync for saved articles (#138)
+
+### Fixed
+- Crash on cold start when locale is unset (#145)
+- Memory leak in image loading on configuration change (#147)
+
+### Changed
+- Bumped compileSdk to 35
+- Migrated DataStore from Preferences to Proto
+
+### Security
+- Bumped okhttp to 4.12.0 (CVE-2023-3635)
+
+[Unreleased]: https://github.com/example/app/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/example/app/compare/v1.4.1...v1.4.2
+```
+
+**Commit-to-section mapping:**
+
+| Commit prefix | CHANGELOG section |
+|---|---|
+| `feat:` | Added |
+| `fix:` | Fixed |
+| `perf:`, `refactor:` | Changed |
+| `security:`, `fix(deps):` for CVEs | Security |
+| `chore:`, `docs:`, `style:`, `test:`, `ci:`, `build:` | Omitted from CHANGELOG (visible only in git log) |
+| `feat!:` / `BREAKING CHANGE:` footer | Listed under "Breaking Changes" at top |
+
+---
+
+## Rule 10 — Manifest & Logging Hardening
+
+Release manifests must not be debuggable, must not allow cleartext traffic, and must not declare unused permissions. Logging must be stripped or no-op in release builds.
+
+```xml
+<!-- app/src/main/AndroidManifest.xml -->
+<application
+    android:name=".App"
+    android:allowBackup="false"
+    android:dataExtractionRules="@xml/data_extraction_rules"
+    android:fullBackupContent="@xml/backup_rules"
+    android:usesCleartextTraffic="false"
+    android:networkSecurityConfig="@xml/network_security_config"
+    tools:targetApi="33">
+    <!-- android:debuggable must NEVER be set here — let Gradle control it via buildTypes -->
+</application>
+```
+
+```kotlin
+// Strip Timber DebugTree in release; plant a no-op tree or a Crashlytics tree
+class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        } else {
+            Timber.plant(CrashlyticsReportingTree())  // forwards to Crashlytics, drops verbose/debug
+        }
+    }
+}
+```
+
+```proguard
+# proguard-rules.pro — strip android.util.Log calls from release
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+}
+```
+
+---
+
+## Pre-Release Checklist (`/release` default)
+
+Run through every item; any unchecked item blocks the release.
+
+### Code & Build
+- [ ] `versionName` bumped per SemVer rules in `libs.versions.toml`
+- [ ] `versionCode` strictly greater than current production track
+- [ ] `CHANGELOG.md` regenerated and reviewed
+- [ ] `applicationId` matches the Play Console app (no debug suffix)
+- [ ] `minSdk`, `targetSdk`, `compileSdk` reviewed against Play target API requirements
+- [ ] All `TODO`, `FIXME`, `STOPSHIP` comments resolved or filed as issues
+
+### Signing
+- [ ] Release keystore exists and is backed up in encrypted storage
+- [ ] `local.properties` keystore entries present locally (never committed)
+- [ ] CI secrets configured: `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
+- [ ] `signingConfig` wired into the release build type — `./gradlew assembleRelease` produces a signed APK
+- [ ] `apksigner verify --verbose --print-certs app-release.apk` confirms v2 + v3 signatures present
+- [ ] Play App Signing enrolled for this `applicationId`
+
+### Manifest & Runtime
+- [ ] `android:debuggable` not set in manifest (Gradle owns it)
+- [ ] `android:allowBackup="false"` (or backup rules explicitly defined)
+- [ ] `android:usesCleartextTraffic="false"`
+- [ ] `networkSecurityConfig` defined; production hosts pinned where required
+- [ ] No `Log.d` / `Log.v` reachable in release — Timber `DebugTree` not planted, ProGuard strips `Log.*`
+- [ ] StrictMode disabled in release
+- [ ] LeakCanary, Chucker, Flipper, debug HTTP loggers excluded from release variant
+
+### R8 / Shrinking
+- [ ] `isMinifyEnabled = true` and `isShrinkResources = true` for release
+- [ ] `android.enableR8.fullMode=true` in `gradle.properties`
+- [ ] `proguard-rules.pro` covers Retrofit/OkHttp, kotlinx.serialization, Room, your DI framework, and any reflection-based libraries
+- [ ] `mapping.txt` generated and non-empty after `bundleRelease`
+- [ ] Smoke test the signed AAB via `bundletool` install-apks on a real device
+
+### Tests & Quality
+- [ ] All unit tests green: `./gradlew testReleaseUnitTest`
+- [ ] All instrumented tests green on the release variant
+- [ ] `./gradlew lint` zero warnings; ktlint + Detekt clean
+- [ ] `./gradlew checkReleaseBadging` passes (no unintended hardware-feature requirements)
+- [ ] Baseline Profile regenerated if startup-critical code changed
+
+### Play Store
+- [ ] Gradle Play Publisher `serviceAccountCredentials` configured
+- [ ] Fastlane metadata directory exists with current `changelogs/<versionCode>.txt` for every active locale
+- [ ] Screenshots up to date for all required form factors (phone, 7" tablet, 10" tablet, foldable)
+- [ ] Data safety form reviewed in Play Console
+- [ ] Internal track upload succeeded; QA installed via Play internal link
+- [ ] `mapping.txt` uploaded (automatic via Gradle Play Publisher)
+
+### Crash Reporting
+- [ ] Crashlytics / Sentry / your reporter initialised in release `Application.onCreate`
+- [ ] `mapping.txt` symbolication enabled; verified with a test crash from a release build
+- [ ] User identifier scrubbing reviewed (no PII attached to crash reports)
+
+### GitHub
+- [ ] Tag pushed in the form `vX.Y.Z` from `main` after merge
+- [ ] `release.yml` succeeded; GitHub Release created with AAB, universal APK, and `mapping.txt` attached
+- [ ] Release notes match `CHANGELOG.md` section
+
+### Post-Release Monitoring (first 24h)
+- [ ] Crash-free user rate above release-gate threshold (e.g., > 99.5%)
+- [ ] ANR rate below threshold
+- [ ] No spike in 5xx from backend
+- [ ] Staged rollout halted automatically if Vitals thresholds breached
+
+---
+
+## Output Format
+
+```
+## Release Readiness Report
+**App:** com.example.app
+**Target version:** 1.4.2 (versionCode 143)
+**Date:** 2026-05-26
+
+### Blockers 🔴
+- mapping.txt missing — R8 did not run on bundleRelease; isMinifyEnabled is false on :app
+- RELEASE_KEYSTORE_BASE64 secret missing in production environment
+- versionCode 142 already published to production — must be ≥ 143
+
+### Warnings 🟠
+- Timber.DebugTree planted unconditionally in Application.onCreate
+- AndroidManifest sets android:debuggable="true" — remove; let Gradle own it
+- No mapping.txt upload step in release.yml — symbolication will fail
+
+### Improvements 🟡
+- Add staged rollout: userFraction = 0.1 in play{} block
+- Add fastlane/metadata changelogs/143.txt for en-US locale
+- Pre-release checklist hasn't been run — execute `/release` and confirm all items
+
+### Good ✅
+- Play App Signing enrolled
+- signingConfig reads from local.properties + env vars
+- Gradle Play Publisher configured with track promotion tasks
+- CHANGELOG.md regenerated from Conventional Commits
+- GitHub release.yml pinned to action SHAs, shreds secrets in always() step
+```
