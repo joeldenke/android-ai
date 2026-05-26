@@ -1,0 +1,596 @@
+---
+name: navigation
+description: Designs and scaffolds type-safe Compose navigation — Navigation 2.x with kotlinx.serialization routes, nested feature graphs, deep links, back-stack policies, graph-scoped ViewModels, bottom-nav integration, and tests with TestNavHostController. DI-agnostic — Hilt shown as primary example, with notes for Koin and manual injection.
+---
+
+When the user runs `/navigation <scenario>`, design or scaffold the complete navigation solution — destinations, graph wiring, deep links, back-stack semantics, and tests. Default to **Navigation 2.8+** type-safe routes using `@Serializable` data classes. Never use string routes for new code.
+
+## Design Process
+
+Before writing a single line of code, answer:
+1. **Single-activity?** — Yes, always. One `NavHost`, many destinations.
+2. **Which feature module owns each destination?** — Each `:feature:*` module exposes a `NavGraphBuilder` extension.
+3. **What arguments cross destinations?** — Only **primitive IDs** (`String`, `Long`, `Int`). Never pass `Parcelable`/`Serializable` domain objects.
+4. **What's the back-stack policy?** — `popUpTo`, `launchSingleTop`, `saveState`/`restoreState`?
+5. **Are there deep links?** — Implicit (Android Intent filter) or explicit (in-app `navigate(uri)`)?
+6. **Is state shared across destinations?** — Use a graph-scoped ViewModel via `hiltViewModel(parentEntry)`.
+
+---
+
+## Rule 1 — Type-safe Routes with `@Serializable`
+
+Use Navigation 2.8+ Kotlin Serialization routes. **Never** use string routes or `NavType.SerializableType` for new code.
+
+```kotlin
+// :feature:userprofile/src/main/kotlin/.../UserProfileRoutes.kt
+
+import kotlinx.serialization.Serializable
+
+/** Root route of the user-profile graph (used as nested-graph identifier). */
+@Serializable
+data object UserProfileGraph
+
+/** Destination inside the graph. */
+@Serializable
+data class UserProfileRoute(val userId: String)
+
+@Serializable
+data class EditProfileRoute(val userId: String)
+
+@Serializable
+data object SettingsRoute
+```
+
+**Rules**
+- One `@Serializable` per destination — `data object` for argument-less, `data class` for arguments.
+- Route classes live in the **feature module that owns them**, alongside the screen.
+- Only primitive types in route classes. **No** `Parcelable`, `Uri`, domain models, lists, etc.
+- For nested graphs, the graph itself is also a `@Serializable` type used as `startDestination` discriminator.
+- Add `kotlin("plugin.serialization")` to the feature module's `build.gradle.kts`.
+
+```kotlin
+// build.gradle.kts (feature module)
+plugins {
+    alias(libs.plugins.kotlin.serialization)
+}
+
+dependencies {
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.serialization.json)
+}
+```
+
+---
+
+## Rule 2 — `NavHost` + `NavController` Setup
+
+Create exactly one `NavController` at the activity root with `rememberNavController()`. Pass typed lambdas down, never the controller itself.
+
+```kotlin
+// :app/src/main/kotlin/.../AppNavHost.kt
+
+@Composable
+fun AppNavHost(
+    modifier: Modifier = Modifier,
+    navController: NavHostController = rememberNavController(),
+    startDestination: Any = HomeGraph,
+) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        modifier = modifier,
+    ) {
+        homeGraph(
+            onUserClick = { userId ->
+                navController.navigate(UserProfileRoute(userId))
+            },
+            onSettingsClick = {
+                navController.navigate(SettingsRoute)
+            },
+        )
+
+        userProfileGraph(
+            onNavigateBack = { navController.popBackStack() },
+            onEditProfile = { userId ->
+                navController.navigate(EditProfileRoute(userId))
+            },
+        )
+
+        settingsGraph(
+            onNavigateBack = { navController.popBackStack() },
+        )
+    }
+}
+```
+
+**Rules**
+- `NavController` is created **once**, at the `NavHost` callsite.
+- Each feature module exposes a single `NavGraphBuilder.xxxGraph(...)` extension — never reach into the controller from inside a feature.
+- Navigation callbacks are typed lambdas (`onUserClick: (userId: String) -> Unit`). Composables receive **lambdas**, not `NavController`.
+
+---
+
+## Rule 3 — Nested Feature Graphs (`NavGraphBuilder` extensions)
+
+Each feature module owns its graph via an extension on `NavGraphBuilder`. This keeps feature modules independent of each other and of the app module.
+
+```kotlin
+// :feature:userprofile/src/main/kotlin/.../UserProfileGraph.kt
+
+fun NavGraphBuilder.userProfileGraph(
+    onNavigateBack: () -> Unit,
+    onEditProfile: (userId: String) -> Unit,
+) {
+    navigation<UserProfileGraph>(
+        startDestination = UserProfileRoute(userId = ""), // overridden by deep link / call site
+    ) {
+        composable<UserProfileRoute> { backStackEntry ->
+            val route: UserProfileRoute = backStackEntry.toRoute()
+            UserProfileScreen(
+                userId = route.userId,
+                onNavigateBack = onNavigateBack,
+                onEditProfile = { onEditProfile(route.userId) },
+            )
+        }
+
+        composable<EditProfileRoute> { backStackEntry ->
+            val route: EditProfileRoute = backStackEntry.toRoute()
+            EditProfileScreen(
+                userId = route.userId,
+                onNavigateBack = onNavigateBack,
+            )
+        }
+    }
+}
+```
+
+**Rules**
+- Feature module never imports another feature's route classes. All cross-feature navigation is expressed as **callbacks** to the app module.
+- Use `backStackEntry.toRoute<RouteType>()` to extract typed arguments — never read from `arguments` Bundle.
+- The `startDestination` for a nested graph is itself a `@Serializable` type.
+- The `NavGraphBuilder` extension is the **only** public API surface of the feature's navigation.
+
+---
+
+## Rule 4 — Deep Links (Implicit + Explicit)
+
+### Explicit (in-app) deep links
+
+In-app navigation via URI is rarely needed when you have type-safe routes — prefer typed `navigate(Route(...))`. Use explicit deep links only for notifications, shortcuts, or web-link handoffs.
+
+```kotlin
+composable<UserProfileRoute>(
+    deepLinks = listOf(
+        navDeepLink<UserProfileRoute>(
+            basePath = "https://example.com/user",
+        ),
+        navDeepLink<UserProfileRoute>(
+            basePath = "app://example/user",
+        ),
+    ),
+) { backStackEntry ->
+    val route: UserProfileRoute = backStackEntry.toRoute()
+    UserProfileScreen(userId = route.userId, /* ... */)
+}
+```
+
+The typed `navDeepLink<UserProfileRoute>(basePath = "...")` auto-generates the URI pattern from the route's serializable fields:
+`https://example.com/user/{userId}` and `https://example.com/user?userId={userId}` (for optional fields).
+
+### Implicit deep links (Android Intent filter)
+
+Declare in the **app module's** `AndroidManifest.xml` so the system can launch the activity from a browser, notification, or other app.
+
+```xml
+<activity
+    android:name=".MainActivity"
+    android:launchMode="singleTop"
+    android:exported="true">
+
+    <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="example.com" />
+        <data android:pathPrefix="/user" />
+    </intent-filter>
+
+    <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="app" android:host="example" />
+    </intent-filter>
+</activity>
+```
+
+**Rules**
+- `launchMode="singleTop"` so deep links don't stack activities.
+- Use `autoVerify="true"` for App Links (HTTPS) and host the `assetlinks.json`.
+- Test deep links from terminal:
+  `adb shell am start -W -a android.intent.action.VIEW -d "https://example.com/user/abc123"`
+
+---
+
+## Rule 5 — Back-stack Management
+
+Use `navigate { ... }` with `NavOptions` for non-default behaviour. The three primitives you need:
+
+```kotlin
+// 1. Replace the current destination (e.g., after login)
+navController.navigate(HomeRoute) {
+    popUpTo<LoginRoute> { inclusive = true }
+    launchSingleTop = true
+}
+
+// 2. Pop everything back to a known destination (e.g., logout)
+navController.navigate(LoginRoute) {
+    popUpTo(navController.graph.id) { inclusive = true }
+    launchSingleTop = true
+}
+
+// 3. Bottom-nav tab switch — preserve per-tab state, single instance per tab
+navController.navigate(tabRoute) {
+    popUpTo(navController.graph.findStartDestination().id) {
+        saveState = true
+    }
+    launchSingleTop = true
+    restoreState = true
+}
+```
+
+**Decision matrix**
+
+| Intent | `popUpTo` | `inclusive` | `launchSingleTop` | `saveState`/`restoreState` |
+|---|---|---|---|---|
+| Push (default) | — | — | — | — |
+| Replace current | current route | `true` | `true` | — |
+| Pop back to root | graph root | `false` | `true` | — |
+| Reset to login | graph id | `true` | `true` | — |
+| Bottom-nav tab switch | start dest | `false` | `true` | `true` |
+| Re-tap same tab | start dest | `false` | `true` | — |
+
+**Rules**
+- Never call `navController.popBackStack()` followed by `navigate()` — use `popUpTo` in a single call.
+- `launchSingleTop = true` whenever the user could tap the same trigger twice (bottom nav, snackbars, push notifications).
+- For login/logout, always `inclusive = true` on the auth route so back doesn't return to it.
+
+---
+
+## Rule 6 — Graph-scoped Shared ViewModel
+
+When two destinations within the same nested graph share state (e.g., a checkout flow), scope a ViewModel to the parent `NavBackStackEntry`. The ViewModel survives until the entire graph is popped.
+
+### Hilt
+
+```kotlin
+@Composable
+fun CheckoutAddressScreen(
+    navController: NavController,
+    onContinue: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Resolve the parent graph's back-stack entry, scoped to CheckoutGraph
+    val parentEntry = remember(navController.currentBackStackEntry) {
+        navController.getBackStackEntry<CheckoutGraph>()
+    }
+    val viewModel: CheckoutViewModel = hiltViewModel(parentEntry)
+
+    // ViewModel state is shared with CheckoutPaymentScreen, CheckoutReviewScreen, etc.
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    /* ... */
+}
+```
+
+### Koin
+
+```kotlin
+val parentEntry = remember(navController.currentBackStackEntry) {
+    navController.getBackStackEntry<CheckoutGraph>()
+}
+val viewModel: CheckoutViewModel = koinViewModel(viewModelStoreOwner = parentEntry)
+```
+
+### Manual / No DI framework
+
+```kotlin
+val parentEntry = remember(navController.currentBackStackEntry) {
+    navController.getBackStackEntry<CheckoutGraph>()
+}
+val viewModel: CheckoutViewModel = viewModel(
+    viewModelStoreOwner = parentEntry,
+    factory = CheckoutViewModelFactory(/* deps */),
+)
+```
+
+**Rules**
+- Never reach for `Activity`-scoped ViewModels to share state across destinations — that's a memory leak waiting to happen.
+- The parent-graph scope **must** be wrapped in `remember(navController.currentBackStackEntry)` to invalidate when navigation changes.
+- Each destination in the graph should request its own narrowly-typed ViewModel **unless** state truly is shared.
+
+---
+
+## Rule 7 — Arguments: Primitives Only
+
+Pass **only** primitive identifiers across destinations. Detail screens load their own data via repository — they do not receive domain objects.
+
+### Do
+
+```kotlin
+@Serializable
+data class UserProfileRoute(val userId: String)
+
+@Serializable
+data class OrderDetailRoute(val orderId: Long, val fromTab: String? = null)
+```
+
+### Don't
+
+```kotlin
+// WRONG — never pass domain models, Parcelables, or complex types as nav args
+@Serializable
+data class UserProfileRoute(val user: UserProfile)        // ✗ leaks layers
+data class OrderRoute(val order: Order) : Parcelable      // ✗ Bundle size, stale data
+data class FilterRoute(val filters: List<String>)         // ✗ encode to single field if needed
+```
+
+**Why**
+- The detail screen needs the freshest copy of the data — re-querying via repository guarantees correctness after returning from edit screens.
+- Bundle size is limited (~1MB across all transactions in process). Big payloads silently crash on Android.
+- Domain models in routes couple feature modules to each other.
+
+**Patterns for "complex" args**
+- **Multi-select**: encode as comma-delimited string in route, parse in ViewModel.
+- **Filters/criteria**: persist in a `SavedStateHandle` or repository keyed by session — pass just an `id`.
+- **Returning a result to the previous screen**: use `SavedStateHandle` on the previous entry:
+  ```kotlin
+  // Picker screen — set result before pop
+  navController.previousBackStackEntry
+      ?.savedStateHandle
+      ?.set("pickedUserId", userId)
+  navController.popBackStack()
+
+  // Calling screen — observe result
+  val pickedUserId by navController.currentBackStackEntry
+      ?.savedStateHandle
+      ?.getStateFlow<String?>("pickedUserId", null)
+      ?.collectAsStateWithLifecycle() ?: return
+  ```
+
+---
+
+## Rule 8 — Bottom Navigation / Navigation Rail
+
+Bottom-nav and rail use the same pattern: a stable list of tab destinations, with `saveState`/`restoreState` so per-tab back-stacks survive switching.
+
+```kotlin
+@Immutable
+data class TopLevelDestination(
+    val route: Any,                    // @Serializable route object
+    val icon: ImageVector,
+    val labelRes: Int,
+)
+
+private val topLevelDestinations = persistentListOf(
+    TopLevelDestination(HomeGraph, Icons.Outlined.Home, R.string.tab_home),
+    TopLevelDestination(SearchGraph, Icons.Outlined.Search, R.string.tab_search),
+    TopLevelDestination(ProfileGraph, Icons.Outlined.Person, R.string.tab_profile),
+)
+
+@Composable
+fun MainScaffold(
+    navController: NavHostController = rememberNavController(),
+    modifier: Modifier = Modifier,
+) {
+    val currentBackStack by navController.currentBackStackEntryAsState()
+    val currentDestination = currentBackStack?.destination
+
+    Scaffold(
+        modifier = modifier,
+        bottomBar = {
+            NavigationBar {
+                topLevelDestinations.forEach { dest ->
+                    val selected = currentDestination
+                        ?.hierarchy
+                        ?.any { it.hasRoute(dest.route::class) } == true
+
+                    NavigationBarItem(
+                        selected = selected,
+                        onClick = {
+                            navController.navigate(dest.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(dest.icon, contentDescription = null) },
+                        label = { Text(stringResource(dest.labelRes)) },
+                    )
+                }
+            }
+        },
+    ) { padding ->
+        AppNavHost(
+            navController = navController,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+```
+
+**Rules**
+- Use `currentBackStackEntryAsState()` — never call `navController.currentBackStackEntry` directly inside a composable (not observable).
+- Selection is determined by `hierarchy.any { hasRoute(...) }` so deep destinations still highlight their root tab.
+- The tab list is `persistentListOf` (kotlinx.collections.immutable) to keep the parameter stable for recomposition.
+- For Navigation Rail (large screens / foldables), reuse the same `topLevelDestinations` and swap `NavigationBar` → `NavigationRail`.
+
+---
+
+## Rule 9 — Testing Navigation
+
+Use `TestNavHostController` to verify route transitions without spinning up the real backstack. Assert on `currentBackStackEntry.destination.route` or use `hasRoute<T>()`.
+
+```kotlin
+class AppNavHostTest {
+
+    @get:Rule
+    val composeRule = createComposeRule()
+
+    private lateinit var navController: TestNavHostController
+
+    @Before
+    fun setUp() {
+        composeRule.setContent {
+            navController = TestNavHostController(LocalContext.current).apply {
+                navigatorProvider.addNavigator(ComposeNavigator())
+            }
+            AppTheme {
+                AppNavHost(navController = navController)
+            }
+        }
+    }
+
+    @Test
+    fun `start destination is HomeGraph`() {
+        val current = navController.currentBackStackEntry?.destination
+        assertTrue(current?.hasRoute<HomeRoute>() == true)
+    }
+
+    @Test
+    fun `tapping a user navigates to UserProfileRoute`() {
+        composeRule.onNodeWithText("Jane Doe").performClick()
+
+        val current = navController.currentBackStackEntry
+        assertTrue(current?.destination?.hasRoute<UserProfileRoute>() == true)
+        val args: UserProfileRoute = current!!.toRoute()
+        assertEquals("user-123", args.userId)
+    }
+
+    @Test
+    fun `login replaces back stack with home`() {
+        navController.navigate(LoginRoute)
+        composeRule.onNodeWithText("Sign in").performClick()
+
+        // LoginRoute is popped, HomeRoute is the only entry
+        assertTrue(navController.currentBackStackEntry?.destination?.hasRoute<HomeRoute>() == true)
+        // popBackStack returns false → nothing left to pop above the start dest
+        assertFalse(navController.popBackStack(route = LoginRoute, inclusive = false))
+    }
+
+    @Test
+    fun `deep link to user profile resolves to typed route`() {
+        val deepLinkIntent = Intent(
+            Intent.ACTION_VIEW,
+            "https://example.com/user/abc123".toUri(),
+        )
+        navController.handleDeepLink(deepLinkIntent)
+
+        val current = navController.currentBackStackEntry
+        assertTrue(current?.destination?.hasRoute<UserProfileRoute>() == true)
+        assertEquals("abc123", current!!.toRoute<UserProfileRoute>().userId)
+    }
+}
+```
+
+**Rules**
+- Prefer asserting `hasRoute<RouteType>()` over comparing route strings.
+- Test each navigation lambda fired from a screen — including back-stack manipulation (`popUpTo`, `inclusive`).
+- For graph-scoped ViewModels, write an instrumented test that pops the parent graph and asserts the ViewModel is cleared (`onCleared` called).
+- Use `runComposeUiTest` (multiplatform-friendly) over `createComposeRule()` when targeting KMP.
+
+---
+
+## Rule 10 — Module Dependency Graph
+
+```
+:app                  ← knows all routes, wires NavHost, defines top-level destinations
+  ↓
+:feature:home          → exposes  fun NavGraphBuilder.homeGraph(callbacks)
+:feature:userprofile   → exposes  fun NavGraphBuilder.userProfileGraph(callbacks)
+:feature:settings      → exposes  fun NavGraphBuilder.settingsGraph(callbacks)
+  ↓
+:core:navigation       ← optional: shared deep-link helpers, NavOptions extensions
+:core:ui               ← theme, design tokens
+:domain, :data         ← no navigation imports — ever
+```
+
+**Rules**
+- Only `:app` (or a thin `:navigation` aggregator) knows about more than one feature.
+- Features depend on `:core:navigation` for shared helpers — never on each other.
+- Domain and data layers must not import `androidx.navigation.*`. A Detekt rule enforces this.
+
+---
+
+## Checklist Before Finishing
+
+### Type safety
+- [ ] All routes are `@Serializable` (`data object` or `data class`)
+- [ ] No `NavType.SerializableType`, no string routes, no `Parcelable` args
+- [ ] `kotlin("plugin.serialization")` applied in every feature module that defines a route
+- [ ] Arguments extracted via `backStackEntry.toRoute<T>()` — not from `arguments` Bundle
+
+### Architecture
+- [ ] Each feature module exposes exactly one `NavGraphBuilder.xxxGraph(...)` extension
+- [ ] No feature module imports another feature's routes
+- [ ] Cross-feature navigation expressed as typed callback lambdas
+- [ ] Screens receive lambdas, never `NavController`
+- [ ] `:domain` and `:data` modules contain zero `androidx.navigation` imports
+
+### Back-stack
+- [ ] Login/replace flows use `popUpTo(..) { inclusive = true }` + `launchSingleTop`
+- [ ] Bottom-nav tab switches use `saveState`/`restoreState` with start-destination popUpTo
+- [ ] No `popBackStack()` followed by `navigate()` in the same handler
+- [ ] `launchSingleTop = true` on any destination reachable from notifications or duplicated triggers
+
+### Deep links
+- [ ] Implicit deep links declared in `AndroidManifest.xml` with `autoVerify="true"` for App Links
+- [ ] `launchMode="singleTop"` on the host activity
+- [ ] `navDeepLink<RouteType>(basePath = ...)` used for typed URI generation
+- [ ] Deep-link smoke-tested via `adb shell am start -W -a android.intent.action.VIEW -d <uri>`
+
+### State sharing
+- [ ] Graph-scoped ViewModels resolved via `navController.getBackStackEntry<GraphType>()` wrapped in `remember`
+- [ ] No activity-scoped ViewModels used to share feature state
+- [ ] Cross-screen results returned via `previousBackStackEntry.savedStateHandle`
+
+### Testing
+- [ ] `TestNavHostController` covers start destination, primary nav flows, and back-stack reset
+- [ ] Each route has a deep-link test if a deep link is declared
+- [ ] Assertions use `hasRoute<T>()` and `toRoute<T>()`, not string comparison
+
+---
+
+## Output Format
+
+When responding to `/navigation <scenario>`, structure the answer as:
+
+```markdown
+## Plan
+<Which routes, which graph(s), back-stack policy, deep-link strategy>
+
+## Routes
+<Code: all @Serializable route classes, in their owning feature modules>
+
+## Graphs
+<Code: NavGraphBuilder extensions per feature, wired into AppNavHost>
+
+## Manifest / Deep Links
+<XML snippet if implicit deep links are needed; adb command to smoke-test>
+
+## Back-stack Decisions
+<Table or bullet list mapping each navigation action to its NavOptions>
+
+## Tests
+<TestNavHostController test class covering start dest, primary flows, deep links>
+
+## Checklist
+- [ ] Routes are @Serializable, primitives only
+- [ ] Each feature exposes a single NavGraphBuilder extension
+- [ ] No NavController passed to screens
+- [ ] Back-stack policies explicit (popUpTo / saveState / launchSingleTop)
+- [ ] Deep links declared and tested
+- [ ] Graph-scoped ViewModels via getBackStackEntry<Graph>()
+- [ ] Tests cover navigation transitions with hasRoute<T>()
+```

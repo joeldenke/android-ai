@@ -110,7 +110,7 @@ These override any suggestion from any specialist:
 Language:      Kotlin only
 Min SDK:       26+
 Architecture:  MVVM + Clean Architecture (UI → Domain → Data)
-DI:            Hilt only
+DI:            Framework-agnostic — Hilt, Koin, Anvil, Metro, or manual; constructor injection throughout
 Async:         Kotlin Coroutines + Flow (no RxJava, no callbacks, no GlobalScope)
 UI:            Jetpack Compose + Material3 only (no M2, no XML layouts)
 Testing:       JUnit5 + Turbine + Mockk + Compose UI test
