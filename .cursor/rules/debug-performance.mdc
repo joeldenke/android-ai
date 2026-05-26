@@ -1,10 +1,12 @@
 ---
-description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type.
+description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type. For deep trace-based profiling with the Android Performance Analyzer and Perfetto SQL, use /performance-analyzer.
 globs: **/*.kt
 alwaysApply: false
 ---
 
 
+
+> For trace-level profiling (Perfetto traces, AI-assisted root-cause analysis, Perfetto SQL queries, GPU counters) use `/performance-analyzer` — the dedicated skill for the Android Performance Analyzer (APA) announced at Google I/O 2026.
 
 ## Performance Diagnostic Framework
 
@@ -68,7 +70,7 @@ data class HomeUiState(val items: List<Item>)
 ```kotlin
 // ❌ New lambda instance created on every recomposition
 @Composable
-fun ParentScreen(viewModel: MyViewModel = hiltViewModel()) {
+fun ParentScreen(viewModel: MyViewModel = viewModel()) {
     ChildCard(
         onClick = { viewModel.onItemClicked(it) }  // ← new instance each recomposition
     )
@@ -195,7 +197,7 @@ class BadManager(private val activity: Activity) { ... }  // ← memory leak
 
 // ✅ Use ApplicationContext or abstract the dependency
 class GoodManager(private val context: Context) {
-    // context is ApplicationContext from Hilt — not an Activity
+    // context should be ApplicationContext — not an Activity
 }
 
 // ❌ Anonymous listener not removed

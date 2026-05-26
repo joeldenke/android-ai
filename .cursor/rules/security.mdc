@@ -1,0 +1,777 @@
+---
+description: Android security audit and hardening — OWASP Mobile Top 10, certificate pinning, secrets management, Play Integrity, network security config, encrypted storage, and ProGuard/R8 security rules.
+alwaysApply: false
+---
+
+
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/security` | Full security audit — OWASP M10 + secrets + transport + storage + R8 |
+| `/security audit` | Same as default — comprehensive OWASP Mobile Top 10 scan |
+| `/security pin-certs` | Add OkHttp `CertificatePinner` + Network Security Config pins |
+| `/security harden-r8` | Add ProGuard/R8 security rules — strip logs, obfuscate sensitive classes |
+| `/security encrypt-storage` | Migrate plain `SharedPreferences` and files to encrypted equivalents |
+| `/security play-integrity` | Integrate Play Integrity API with server-side nonce verification |
+
+---
+
+## Output Format
+
+```
+## Security Audit Report
+**Project:** <name>
+**Scanned:** <today>
+**Scope:** <modules / files audited>
+**Auditor:** Android AI Security
+
+### Executive Summary
+<2-3 sentences: overall posture, count of findings by severity>
+
+### Findings
+#### Critical 🔴  (exploitable now — block release)
+#### High 🟠     (likely exploit path — fix before next release)
+#### Medium 🟡   (defence-in-depth gap — fix within the quarter)
+#### Low 🟢      (best practice — fix opportunistically)
+
+Each finding includes:
+- **ID** — e.g. `SEC-001`
+- **OWASP** — M1–M10 mapping
+- **Location** — file:line
+- **Description** — what the issue is
+- **Risk** — what an attacker can do
+- **Fix** — concrete code patch
+- **Verification** — how to confirm it's fixed
+
+### Hardening Recommendations
+<Proactive items not tied to a specific finding>
+
+### Sign-Off Checklist
+<Items that must be true before shipping>
+```
+
+---
+
+## OWASP Mobile Top 10 (2024) — Detection & Remediation
+
+For every audit, walk through each item below. For each, run the listed detection and apply the listed fix.
+
+### M1 — Improper Credential Usage
+
+**What:** Hardcoded credentials, API keys committed to source, weak credential storage.
+
+**Detect:**
+- `git grep -nE '(api[_-]?key|secret|password|token|bearer)\s*=\s*"[^"]{8,}"' -- '*.kt' '*.java' '*.xml' '*.gradle*'`
+- Search `strings.xml`, `BuildConfig`, and any `Constants.kt` for high-entropy literals
+- Inspect `local.properties`, `.env`, `keystore.properties` — they must be gitignored
+- Decompile the release APK (`apkanalyzer` or `jadx`) and grep for the same patterns
+
+**Fix:**
+- Move all secrets to `local.properties` (gitignored) and inject via `BuildConfig`:
+  ```kotlin
+  // app/build.gradle.kts
+  val localProps = Properties().apply {
+      val f = rootProject.file("local.properties")
+      if (f.exists()) f.inputStream().use { load(it) }
+  }
+  android.defaultConfig {
+      buildConfigField("String", "API_KEY", "\"${localProps.getProperty("API_KEY", "")}\"")
+  }
+  android.buildFeatures.buildConfig = true
+  ```
+- For production secrets prefer `secrets-gradle-plugin` or a remote secret manager (server-issued tokens).
+- Never put long-lived secrets in the APK — assume APK contents are public.
+
+### M2 — Inadequate Supply Chain Security
+
+**What:** Unverified third-party SDKs, dependency confusion, malicious transitive deps.
+
+**Detect:**
+- `./gradlew :app:dependencies --configuration releaseRuntimeClasspath` — review every artifact
+- Check for unsigned/HTTP repositories in `settings.gradle.kts`
+- Look for `mavenLocal()` or arbitrary `maven { url = "http://…" }` entries
+
+**Fix:**
+- Use Gradle dependency verification: `./gradlew --write-verification-metadata sha256` then commit `gradle/verification-metadata.xml`.
+- Restrict repositories to `google()`, `mavenCentral()`, and explicitly trusted HTTPS Maven URLs.
+- Pin plugin versions in the version catalog; never use `+` or `latest.release`.
+- Enable Renovate/Dependabot with required-review on dependency updates.
+
+### M3 — Insecure Authentication / Authorization
+
+**What:** Client-side trust decisions, weak session tokens, missing biometric re-auth.
+
+**Detect:**
+- Find code that reads `isAdmin`/`role` flags from local storage to gate features.
+- Search for JWTs decoded client-side without server verification.
+- Look for missing `BiometricPrompt` on sensitive flows (payments, key export).
+
+**Fix:**
+- Make the server the source of truth — never trust client claims.
+- Use `BiometricPrompt` + `CryptoObject` (see Biometric Auth section).
+- Tokens stored in `EncryptedSharedPreferences` or Android Keystore-wrapped.
+
+### M4 — Insufficient Input/Output Validation
+
+**What:** SQL injection (Room `@RawQuery`), WebView XSS, deep link injection.
+
+**Detect:**
+- `git grep -n '@RawQuery\|SimpleSQLiteQuery'` — confirm parameters are bound, not concatenated.
+- `git grep -n 'setJavaScriptEnabled(true)'` — any WebView with JS enabled needs strict input scrubbing.
+- Review every `<intent-filter>` for `android:autoVerify` and host validation.
+
+**Fix:**
+- Always use parameterised Room queries (`@Query` with `:param`).
+- For WebView: `setAllowFileAccess(false)`, `setAllowContentAccess(false)`, no `addJavascriptInterface` unless the bridge is hardened.
+- Validate deep link hosts/paths in code before acting on params; never trust the intent.
+
+### M5 — Insecure Communication
+
+**What:** Cleartext HTTP, missing TLS pinning, accepting all certs.
+
+**Detect:**
+- `git grep -n 'http://'` in any `.kt`, `.xml`, or resource file.
+- `usesCleartextTraffic="true"` in `AndroidManifest.xml`.
+- Custom `TrustManager`/`HostnameVerifier` that returns `true`.
+- Missing `network_security_config.xml`.
+
+**Fix:**
+- Set `android:usesCleartextTraffic="false"` and ship a Network Security Config (see section below).
+- Add OkHttp `CertificatePinner` for all production APIs.
+- Remove any custom `TrustManager` from production builds — debug-only at most.
+
+### M6 — Inadequate Privacy Controls
+
+**What:** PII in logs/crash reports, missing data-deletion flow, over-broad permissions.
+
+**Detect:**
+- `git grep -nE 'Log\.[vdiwe]\(' -- '*.kt'` — review what is logged.
+- Check that crash reporters scrub user identifiers.
+- Audit `AndroidManifest.xml` permissions vs. features actually used.
+
+**Fix:**
+- Strip `Log.*` calls in release via R8 (see Hardening section).
+- Implement an in-app "delete my data" flow that calls both server and local clears.
+- Drop unused permissions; declare `tools:node="remove"` for transitively-included ones.
+
+### M7 — Insufficient Binary Protections
+
+**What:** Reverse-engineered APK reveals logic, no anti-tamper checks, debuggable release.
+
+**Detect:**
+- `aapt dump badging app-release.apk | grep debuggable` — must be empty.
+- Confirm `isMinifyEnabled = true` and `isShrinkResources = true` for `release`.
+- Decompile with `jadx-gui app-release.apk` — class names should be obfuscated.
+
+**Fix:**
+- Enable R8 full mode: `android.enableR8.fullMode=true` in `gradle.properties`.
+- Apply security ProGuard rules (see Hardening section).
+- Verify Play Integrity verdicts server-side on sensitive endpoints.
+
+### M8 — Security Misconfiguration
+
+**What:** Exported components without permission, debug flags on, world-readable files.
+
+**Detect:**
+- Find `android:exported="true"` on `Activity`/`Service`/`Receiver`/`Provider` — each must justify export.
+- `android:debuggable` must never appear in release manifest.
+- Check `MODE_WORLD_READABLE`/`MODE_WORLD_WRITEABLE` usages (deprecated and dangerous).
+- `android:allowBackup="true"` exposes app data via `adb backup` — set `false` unless you ship a `backup_rules.xml`.
+
+**Fix:**
+- Set `android:exported="false"` unless the component genuinely faces other apps; if exported, gate with `android:permission`.
+- `android:allowBackup="false"` and `android:fullBackupContent="@xml/backup_rules"`.
+- Remove any `MODE_WORLD_*` usage.
+
+### M9 — Insecure Data Storage
+
+**What:** Plaintext `SharedPreferences`, unencrypted SQLite, sensitive files in external storage.
+
+**Detect:**
+- `git grep -n 'getSharedPreferences\|PreferenceManager'` — check what is being stored.
+- Look for Room databases holding tokens/PII without `SupportFactory` (SQLCipher) or app-layer encryption.
+- Any use of `Environment.getExternalStorageDirectory()` for sensitive files.
+
+**Fix:**
+- Migrate to `EncryptedSharedPreferences` (see section below) or DataStore + Tink.
+- For Room: encrypt secrets at the field level via Android Keystore, or use SQLCipher.
+- Sensitive files: app-internal storage only (`context.filesDir`), never external.
+
+### M10 — Insufficient Cryptography
+
+**What:** ECB mode, MD5/SHA-1 for security, hardcoded IVs, weak key sizes.
+
+**Detect:**
+- `git grep -nE '"AES/ECB|"DES|MD5|SHA-1|SHA1"'`
+- Search for `Cipher.getInstance("AES")` (defaults to ECB — bad).
+- Hardcoded `IvParameterSpec(byteArrayOf(...))` — IVs must be random per encryption.
+
+**Fix:**
+- Use `AES/GCM/NoPadding` with a fresh random 12-byte IV per message.
+- Generate and store keys in the Android Keystore (`KeyGenParameterSpec`), not in app memory or prefs.
+- Use SHA-256+ for hashing; BCrypt/Argon2 for password derivation.
+- Prefer Google Tink — it picks safe defaults for you.
+
+---
+
+## Secrets Management
+
+### Rules
+
+1. **No secret in source control.** Period. The repo is the threat boundary.
+2. **No long-lived secret in the APK.** Treat the binary as public.
+3. **Use `local.properties` for dev secrets** (already gitignored by default).
+4. **Use `BuildConfig` to inject** — never hardcoded string constants.
+5. **Keystores live outside the repo** — store in a secure vault, reference via `KEYSTORE_PATH` env var in CI.
+
+### Local Dev Setup
+
+```kotlin
+// app/build.gradle.kts
+import java.util.Properties
+
+val secrets = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+android {
+    defaultConfig {
+        buildConfigField(
+            "String",
+            "API_KEY",
+            "\"${secrets.getProperty("API_KEY") ?: System.getenv("API_KEY").orEmpty()}\"",
+        )
+    }
+    buildFeatures { buildConfig = true }
+}
+```
+
+```properties
+# local.properties — gitignored, NEVER commit
+API_KEY=dev_key_here
+MAPS_KEY=AIza...
+```
+
+### Signing Configs
+
+```kotlin
+// app/build.gradle.kts
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file(keystoreProps.getProperty("storeFile") ?: System.getenv("KEYSTORE_PATH"))
+            storePassword = keystoreProps.getProperty("storePassword") ?: System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = keystoreProps.getProperty("keyAlias") ?: System.getenv("KEY_ALIAS")
+            keyPassword = keystoreProps.getProperty("keyPassword") ?: System.getenv("KEY_PASSWORD")
+        }
+    }
+}
+```
+
+### `.gitignore` Must Contain
+
+```
+local.properties
+keystore.properties
+*.keystore
+*.jks
+*.p12
+.env
+.env.*
+google-services.json   # if it carries secrets — verify with platform team
+```
+
+### CI Secrets
+
+- GitHub Actions: store in repository secrets, expose via `env:` block scoped to the job, never echo.
+- Use `gradle/actions/setup-gradle` with config-cache encryption for matching encrypted CI caches.
+- Rotate keystore/API keys at least annually and on any team-membership change.
+
+---
+
+## Network Security Config
+
+Ship a Network Security Config for every app. Bind it in the manifest:
+
+```xml
+<!-- AndroidManifest.xml -->
+<application
+    android:networkSecurityConfig="@xml/network_security_config"
+    android:usesCleartextTraffic="false"
+    android:allowBackup="false"
+    android:fullBackupContent="@xml/backup_rules">
+    ...
+</application>
+```
+
+```xml
+<!-- res/xml/network_security_config.xml -->
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+
+    <!-- Production: TLS only, pinned, no user CAs -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+    <!-- API pinning -->
+    <domain-config>
+        <domain includeSubdomains="true">api.example.com</domain>
+        <pin-set expiration="2026-12-31">
+            <!-- Primary (current leaf SPKI) -->
+            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
+            <!-- Backup (next rotation) -->
+            <pin digest="SHA-256">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=</pin>
+        </pin-set>
+    </domain-config>
+
+    <!-- Debug only: allow user-installed CAs (Charles, mitmproxy) -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
+```
+
+```xml
+<!-- res/xml/backup_rules.xml — explicit allow-list -->
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="."/>
+    <exclude domain="database" path="."/>
+    <exclude domain="file" path="."/>
+</full-backup-content>
+```
+
+Production rules:
+- `cleartextTrafficPermitted="false"` everywhere except explicitly justified debug domains.
+- Never trust `user` certs in `base-config` (defeats pinning for malware).
+- Pin expirations must be tracked — set a calendar reminder 60 days before expiry.
+
+---
+
+## OkHttp Certificate Pinning
+
+Defence-in-depth alongside Network Security Config. NSC is checked first; `CertificatePinner` is a second line that survives if NSC is bypassed.
+
+```kotlin
+// data/network/CertificatePinnerFactory.kt
+object CertificatePinnerFactory {
+
+    fun create(): CertificatePinner = CertificatePinner.Builder()
+        // Primary — current production leaf SPKI
+        .add("api.example.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        // Backup — next rotation key (issued, not yet active)
+        .add("api.example.com", "sha256/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=")
+        // Optional: also pin the intermediate for safer rotation
+        .add("api.example.com", "sha256/CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=")
+        .build()
+}
+```
+
+```kotlin
+// data/network/NetworkModule.kt — DI-agnostic Provider
+class OkHttpClientProvider @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    fun provide(): OkHttpClient = OkHttpClient.Builder()
+        .certificatePinner(CertificatePinnerFactory.create())
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(AuthInterceptor())
+        .apply {
+            if (BuildConfig.DEBUG) addInterceptor(
+                HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC),
+            )
+        }
+        .build()
+}
+```
+
+### Computing Pins
+
+```bash
+# Compute SPKI SHA-256 pin from a server's leaf certificate
+openssl s_client -servername api.example.com -connect api.example.com:443 < /dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary \
+  | openssl enc -base64
+```
+
+### Rotation Strategy
+
+1. Always ship **two pins**: current + next.
+2. Before rotation, server adds the new cert; clients already trust it via the backup pin.
+3. After rotation, issue a release that swaps current/backup and adds the next-next pin.
+4. Track all pin expirations in a shared calendar.
+5. Have an emergency "pinning disabled" remote config flag — gated by signed payload, not flippable by attackers.
+
+---
+
+## EncryptedSharedPreferences
+
+For tokens, refresh tokens, user IDs, and small structured secrets. For large blobs use Tink + `EncryptedFile` or DataStore + manual encryption.
+
+```kotlin
+// data/storage/SecureStorage.kt
+class SecureStorage @Inject constructor(
+    @ApplicationContext context: Context,
+) {
+    private val masterKey: MasterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .setUserAuthenticationRequired(false) // set true for biometric-gated keys
+        .build()
+
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        "secure_prefs",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    fun putToken(token: String) = prefs.edit { putString(KEY_TOKEN, token) }
+    fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
+    fun clear() = prefs.edit { clear() }
+
+    private companion object {
+        const val KEY_TOKEN = "auth_token"
+    }
+}
+```
+
+### Migration From Plain Prefs
+
+```kotlin
+class SecureStorageMigrator @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val secure: SecureStorage,
+) {
+    fun migrateOnce() {
+        val legacy = context.getSharedPreferences("legacy_prefs", Context.MODE_PRIVATE)
+        legacy.getString("auth_token", null)?.let { token ->
+            secure.putToken(token)
+            legacy.edit { remove("auth_token") }
+        }
+        // Repeat for each migrated key, then delete the legacy file when empty.
+        if (legacy.all.isEmpty()) {
+            context.deleteSharedPreferences("legacy_prefs")
+        }
+    }
+}
+```
+
+Run the migrator once in `Application.onCreate()` (idempotent — safe to call repeatedly).
+
+---
+
+## Biometric Auth (`BiometricPrompt` + `CryptoObject`)
+
+Biometric prompts without `CryptoObject` are presentation-only — they can be bypassed by a rooted device. Always bind to a Keystore key.
+
+```kotlin
+// data/auth/BiometricAuthenticator.kt
+class BiometricAuthenticator @Inject constructor() {
+
+    fun canAuthenticate(context: Context): Boolean =
+        BiometricManager.from(context)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
+    suspend fun authenticate(
+        activity: FragmentActivity,
+        keyAlias: String,
+    ): Cipher = suspendCancellableCoroutine { cont ->
+        val cipher = createCipher(keyAlias)
+        val cryptoObject = BiometricPrompt.CryptoObject(cipher)
+
+        val prompt = BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    val authedCipher = result.cryptoObject?.cipher
+                    if (authedCipher != null) cont.resume(authedCipher)
+                    else cont.resumeWithException(IllegalStateException("No cipher"))
+                }
+                override fun onAuthenticationError(code: Int, msg: CharSequence) {
+                    cont.resumeWithException(BiometricException(code, msg.toString()))
+                }
+            },
+        )
+
+        prompt.authenticate(
+            BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Confirm it's you")
+                .setSubtitle("Authenticate to unlock secure data")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                .setNegativeButtonText("Cancel")
+                .build(),
+            cryptoObject,
+        )
+    }
+
+    private fun createCipher(keyAlias: String): Cipher {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val key = (keyStore.getKey(keyAlias, null) as? SecretKey) ?: generateKey(keyAlias)
+        return Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }
+    }
+
+    private fun generateKey(alias: String): SecretKey {
+        val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        gen.init(
+            KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setUserAuthenticationRequired(true)
+                .setInvalidatedByBiometricEnrollment(true) // re-enrolment invalidates key (anti-tamper)
+                .setKeySize(256)
+                .build(),
+        )
+        return gen.generateKey()
+    }
+}
+
+class BiometricException(val code: Int, message: String) : Exception(message)
+```
+
+Rules:
+- Always use `BIOMETRIC_STRONG` (Class 3) — `BIOMETRIC_WEAK` allows face unlock on devices without secure hardware.
+- `setInvalidatedByBiometricEnrollment(true)` — any new fingerprint enrolment voids the key, so an attacker who adds a fingerprint can't read existing secrets.
+- Never store the raw biometric — only the key wrapped in the Keystore.
+
+---
+
+## Play Integrity API
+
+Use Play Integrity to verify the calling APK is genuine and untampered. Verdicts are obtained on the device but **must be verified on the server**.
+
+### Client
+
+```kotlin
+class PlayIntegrityClient @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+    private val manager = IntegrityManagerFactory.createStandard(context)
+
+    suspend fun getToken(nonce: String): String {
+        require(nonce.length in 16..500) { "Nonce must be 16–500 chars, URL-safe base64" }
+        val request = IntegrityTokenRequest.builder()
+            .setNonce(nonce)
+            .setCloudProjectNumber(BuildConfig.GCP_PROJECT_NUMBER)
+            .build()
+        return manager.requestIntegrityToken(request).await().token()
+    }
+}
+```
+
+### When to Call
+
+- On critical, server-side-verifiable actions: login, payment, redeem promo, fetch sensitive data.
+- **Not** on every request — call budget is limited and latency is real (~500ms p50).
+- Use the **standard request** for routine calls; the **classic request** only for one-off high-value flows.
+
+### Nonce Best Practices
+
+- Generate the nonce **server-side**, send it to the client, client passes it back in the integrity request.
+- Bind the nonce to the request payload: `nonce = base64url(sha256(timestamp || userId || requestBody))`.
+- Server keeps a short-TTL cache of issued nonces; rejects any verdict whose nonce isn't there or has been used.
+- Never let the client choose the nonce — that defeats anti-replay.
+
+### Server-Side Verification
+
+- Decrypt and verify the JWE/JWS via Google's Play Integrity decoding (preferred: Google's server-side library or REST endpoint).
+- Check: `appLicensingVerdict == LICENSED`, `appRecognitionVerdict == PLAY_RECOGNIZED`, `deviceRecognitionVerdict` contains `MEETS_DEVICE_INTEGRITY` (and stricter levels for higher-risk endpoints).
+- On failure: log, return 403, optionally challenge with step-up auth — do **not** leak verdict details to the client.
+
+---
+
+## ProGuard / R8 Security Rules
+
+```kotlin
+// app/build.gradle.kts
+android {
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+                "proguard-security.pro",
+            )
+        }
+    }
+}
+```
+
+```properties
+# gradle.properties
+android.enableR8.fullMode=true
+```
+
+```proguard
+# proguard-security.pro
+
+# 1) Strip all Log.* calls in release — prevents PII leakage via logcat.
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
+}
+
+# 2) Strip println/Timber.d, etc. — anything that emits to logcat in release.
+-assumenosideeffects class kotlin.io.ConsoleKt {
+    public static *** println(...);
+}
+-assumenosideeffects class timber.log.Timber {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+}
+
+# 3) Don't keep source file names or line numbers in stack traces sent to users.
+#    Map file is still generated for Play Console upload.
+-renamesourcefileattribute SourceFile
+-keepattributes SourceFile,LineNumberTable
+
+# 4) Aggressively obfuscate sensitive packages.
+-repackageclasses 'a'
+-allowaccessmodification
+
+# 5) Keep classes that the runtime needs by reflection — but do not over-keep.
+#    Only add specific @Keep'd classes, not whole packages.
+
+# 6) Strip BuildConfig debug fields (DEBUG flag stays; secrets stripped if marked).
+-assumevalues class **.BuildConfig {
+    public static final boolean DEBUG return false;
+}
+```
+
+Verification:
+- `./gradlew :app:assembleRelease`
+- `jadx-gui app/build/outputs/apk/release/app-release.apk` — confirm class names are obfuscated and no `Log.d("token: …")` strings remain.
+- Upload the `mapping.txt` to Play Console (or your crash reporter) so production stacks remain readable internally.
+
+---
+
+## Comprehensive Audit Checklist
+
+Run through this whenever `/security` or `/security audit` is invoked. Mark severity inline.
+
+### Secrets & Build Config
+- [ ] No API keys, tokens, or passwords in `*.kt`, `*.java`, `*.xml`, `*.gradle*` — **Critical**
+- [ ] `local.properties`, `keystore.properties`, `*.keystore`, `*.jks`, `.env` in `.gitignore` — **Critical**
+- [ ] `google-services.json` / `firebase-credentials.json` reviewed for embedded secrets — **High**
+- [ ] All build secrets injected via `BuildConfig` or env vars, not literals — **High**
+- [ ] Keystores stored in a vault, not in the repo — **Critical**
+
+### Manifest Hygiene
+- [ ] `android:debuggable` absent from release manifest — **Critical**
+- [ ] `android:allowBackup="false"` or restricted via `backup_rules.xml` — **High**
+- [ ] `android:usesCleartextTraffic="false"` — **High**
+- [ ] Every `exported="true"` component is intentional and permission-gated — **High**
+- [ ] No `MODE_WORLD_READABLE` / `MODE_WORLD_WRITEABLE` anywhere — **Critical**
+- [ ] Deep link hosts use `android:autoVerify="true"` and are validated in code — **Medium**
+
+### Transport Security
+- [ ] `network_security_config.xml` present and bound in manifest — **High**
+- [ ] OkHttp `CertificatePinner` configured for all production hosts — **High**
+- [ ] Two pins per host (current + backup), expirations tracked — **Medium**
+- [ ] No custom `TrustManager` accepting all certs (debug-only at most) — **Critical**
+- [ ] HTTP logging interceptor wrapped in `BuildConfig.DEBUG` check — **Medium**
+
+### Storage
+- [ ] No tokens/PII in plain `SharedPreferences` or DataStore — **Critical**
+- [ ] Tokens stored in `EncryptedSharedPreferences` or Keystore-wrapped — **Critical**
+- [ ] Sensitive files in `context.filesDir`, not external storage — **High**
+- [ ] Room databases holding secrets use SQLCipher or field-level encryption — **High**
+- [ ] Cache directories don't contain sensitive responses — **Medium**
+
+### Cryptography
+- [ ] No `MD5`, `SHA-1`, `DES`, `RC4`, or `AES/ECB` — **Critical**
+- [ ] AES uses `AES/GCM/NoPadding` with random per-message IV — **Critical**
+- [ ] Keys generated via Android Keystore (`KeyGenParameterSpec`) — **High**
+- [ ] No hardcoded IVs, salts, or keys — **Critical**
+- [ ] Password hashing uses BCrypt/Argon2/scrypt, never plain SHA — **Critical**
+
+### Authentication
+- [ ] `BiometricPrompt` uses `BIOMETRIC_STRONG` (Class 3) — **High**
+- [ ] `BiometricPrompt` bound to a `CryptoObject` for sensitive flows — **High**
+- [ ] Keys use `setInvalidatedByBiometricEnrollment(true)` — **Medium**
+- [ ] Server is the source of truth for authorization decisions — **Critical**
+- [ ] Tokens have a short TTL and refresh tokens are rotated — **High**
+
+### Code & Logging
+- [ ] No PII in `Log.*` calls (stripped via R8 anyway, but defensive) — **High**
+- [ ] Crash reporters scrub user identifiers — **High**
+- [ ] No `WebView` with `setJavaScriptEnabled(true)` + untrusted content — **Critical**
+- [ ] No `addJavascriptInterface` exposing arbitrary methods — **Critical**
+- [ ] Room `@RawQuery` arguments are parameterised — **High**
+
+### Build Hardening
+- [ ] `isMinifyEnabled = true` for release — **High**
+- [ ] `isShrinkResources = true` for release — **Medium**
+- [ ] `android.enableR8.fullMode=true` — **Medium**
+- [ ] Log-stripping ProGuard rules applied — **High**
+- [ ] `mapping.txt` uploaded to Play Console / crash reporter — **Medium**
+- [ ] Dependency verification metadata committed — **Medium**
+
+### Play Integrity
+- [ ] Integrity checks gate critical flows (login, payment, etc.) — **High**
+- [ ] Nonces are server-issued and bound to the request — **Critical**
+- [ ] Verdicts verified server-side, never trusted client-side — **Critical**
+- [ ] Failure path doesn't leak verdict details to attacker — **Medium**
+
+### Privacy
+- [ ] Permissions match features actually used — **Medium**
+- [ ] In-app data-deletion flow exists and is reachable — **High**
+- [ ] Third-party SDKs vetted for telemetry/PII transmission — **High**
+- [ ] Privacy policy URL reachable from app and Play listing — **Medium**
+
+---
+
+## Sign-Off Checklist (Pre-Release Gate)
+
+Block release if any of these are false:
+
+1. Static security audit passed (this skill, run on the release branch).
+2. No `Critical` findings open.
+3. All `High` findings have a tracked ticket and a fix-by date.
+4. `mapping.txt` retained and uploaded.
+5. Keystore backed up off-machine in two locations.
+6. Certificate pin expirations more than 90 days in the future.
+7. Play Integrity verdict path tested end-to-end against staging.
+8. Penetration test report reviewed (annually, minimum).
+
+---
+
+## Standards Enforcement
+
+These overrides apply regardless of any specialist's suggestion:
+
+- **Never** disable TLS verification in production builds.
+- **Never** ship an APK with `debuggable=true`.
+- **Never** commit secrets — abort the operation and instruct the user to rotate any exposed credential immediately.
+- **Always** assume the APK is public; design around server-side trust.
+- **Always** pin certificates AND use Network Security Config (defence in depth).
+- **Always** use the Android Keystore for cryptographic key material.

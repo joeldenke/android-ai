@@ -83,6 +83,9 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Architecture Audit | `/architecture-audit` | Audits current project for layer violations, coupling, anti-patterns |
 | Debug Performance | `/debug-performance <screen or area>` | Identifies Compose recomposition, memory, startup, or jank issues |
 | Write Tests | `/write-tests <target>` | Generates comprehensive test suite (unit + integration + UI) |
+| Dependency Injection | `/dependency-injection [task]` | Set up or audit DI — Hilt, Koin, Anvil, Metro, or manual injection |
+| Navigation | `/navigation [task]` | Type-safe Compose Navigation, nested graphs, deep links, back stack |
+| Security | `/security [task]` | OWASP Mobile Top 10 audit, certificate pinning, secrets hardening, Play Integrity |
 
 ### Build & CI/CD
 
@@ -90,6 +93,10 @@ Reusable slash commands invoked with `/skill-name [args]`.
 |---|---|---|
 | Gradle | `/gradle [task]` | Build health check, optimize, manage deps, R8, version catalog, convention plugins |
 | GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
+| Release | `/release [task]` | Signing config, Play Store track management, versioning, GitHub releases |
+| Baseline Profile | `/baseline-profile [task]` | Generate and verify Macrobenchmark baseline profiles for startup performance |
+| Android CLI | `/android-cli [task]` | Android CLI 1.0 — agent-ready build/run/test, official skill management, Journeys, CI |
+| Performance Analyzer | `/performance-analyzer [task]` | Android Performance Analyzer (APA) — Perfetto traces, AI-assisted root-cause, Perfetto SQL |
 
 ### Device & QA
 

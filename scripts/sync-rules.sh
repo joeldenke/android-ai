@@ -51,6 +51,13 @@ declare -A CURSOR_GLOBS=(
   [auto-mobile]=""
   [figma-verify]=""
   [figma-sync]=""
+  [dependency-injection]="**/*.kt"
+  [navigation]="**/*.kt"
+  [security]=""
+  [release]=""
+  [baseline-profile]="**/*.kt"
+  [android-cli]=""
+  [performance-analyzer]=""
 )
 
 declare -A CURSOR_ALWAYS_APPLY=(
@@ -68,6 +75,13 @@ declare -A CURSOR_ALWAYS_APPLY=(
   [auto-mobile]=false
   [figma-verify]=false
   [figma-sync]=false
+  [dependency-injection]=true
+  [navigation]=true
+  [security]=false
+  [release]=false
+  [baseline-profile]=false
+  [android-cli]=false
+  [performance-analyzer]=false
 )
 
 # ---------------------------------------------------------------------------
