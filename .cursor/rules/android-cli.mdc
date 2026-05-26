@@ -1,0 +1,430 @@
+---
+description: Android CLI 1.0 expert — Google's official command-line tool for AI agents. Cuts LLM token use by 70%+ and runs 3x faster by delegating builds, SDK management, emulators, docs lookup, skills installation, and journeys execution to a deterministic CLI.
+alwaysApply: false
+---
+
+
+
+## Tasks
+
+| Command | Action |
+|---|---|
+| `/android-cli` | Health check — installed version, `ANDROID_HOME`, project describe |
+| `/android-cli install` | Install or upgrade Android CLI + verify environment |
+| `/android-cli skills` | List, add, or remove official Android Skills |
+| `/android-cli describe` | Generate a structured project metadata payload for grounding |
+| `/android-cli journeys` | Author, list, or run natural-language UX journeys |
+| `/android-cli build [--variant]` | Run a build through the CLI (delegates to Gradle) |
+| `/android-cli docs <query>` | Fetch official Android documentation by query |
+| `/android-cli emulator <subcommand>` | Create, start, list, or stop emulators |
+
+---
+
+## Rule 1 — Installation
+
+The Android CLI is distributed two ways. Install **one** and verify before any other command runs.
+
+```bash
+# Option A — npm (recommended for agent environments and CI)
+npm install -g @android/cli
+
+# Option B — sdkmanager (recommended for engineers on workstations with the SDK already)
+sdkmanager --install "cmdline-tools;latest" "android-cli;1.0"
+
+# Verify
+android --version
+# → Android CLI 1.0.0 (build 20260518) — compatible with Android Skills 1.0
+```
+
+**Environment variables — set these in your shell profile and in CI:**
+
+```bash
+export ANDROID_HOME="$HOME/Library/Android/sdk"          # macOS default; use the SDK location on Linux/Windows
+export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+export PATH="$ANDROID_HOME/platform-tools:$PATH"
+export ANDROID_AGENT="claude-code"                        # tells the CLI which agent is invoking it
+```
+
+If `android --version` fails:
+
+```bash
+# Diagnose path issues
+which android
+echo "$ANDROID_HOME"
+ls "$ANDROID_HOME/cmdline-tools/latest/bin"
+
+# Re-link if installed via npm but not on PATH
+npm config get prefix
+```
+
+The CLI must be on PATH **before** the agent's session starts — otherwise hooks that call `android describe` at session-start will silently no-op.
+
+---
+
+## Rule 2 — Core Commands
+
+Android CLI replaces a long tail of bespoke `gradlew` / `adb` / `avdmanager` / `sdkmanager` invocations with a single typed surface. Prefer these over raw shell.
+
+```bash
+# Build
+android build                            # debug, default variant
+android build --variant release          # release APK
+android build --module :feature:home     # build a single module
+android build --aab                      # Android App Bundle for Play
+
+# Run
+android run --device pixel-8-api-35      # build, install, launch on a target device
+android run --variant debug --keep-data  # preserve app data between runs
+
+# Test
+android test                             # unit + Compose UI tests for all modules
+android test --module :feature:home      # one module
+android test --device emulator           # instrumented tests on the default emulator
+
+# Describe — emit structured project metadata for grounding an agent
+android describe                         # human-readable summary on stdout
+android describe --format json           # JSON payload for tools and hooks
+android describe --output .android/describe.json
+
+# Docs — fetches official Android documentation by query (cached locally)
+android docs "Navigation 3 entry providers"
+android docs "Compose Modifier.semantics"
+android docs --offline "BroadcastReceiver registerReceiver flags"
+
+# Emulator
+android emulator list                    # available AVDs + running instances
+android emulator create pixel-8-api-35   # creates a new AVD with sane defaults
+android emulator start pixel-8-api-35    # boots headlessly by default
+android emulator stop pixel-8-api-35
+```
+
+**Token economy:** `android describe --format json` produces a compact, deduplicated project map — modules, source sets, AGP/Kotlin versions, applied skills, journeys, and exposed app functions — typically **<2 KB** versus the **30 KB+** an agent would scrape by reading every `build.gradle.kts`. Always prefer `describe` over file-by-file inspection when grounding context.
+
+---
+
+## Rule 3 — Skills Management
+
+Android Skills are the open standard for packaging Android expertise so any AI agent can consume it. This repository's skills are compatible with the same standard — `android skills add` will drop them into the correct location for whichever agent is set in `ANDROID_AGENT`.
+
+```bash
+# Discover
+android skills list                                # all installable skills
+android skills list --installed                    # only what's already in this project
+android skills list --search compose               # filter by keyword
+
+# Install a skill into the current project for the current agent
+android skills add --skill xml-to-compose
+
+# Target a specific agent (overrides $ANDROID_AGENT)
+android skills add --skill navigation-3 --agent="${ANDROID_AGENT}"
+android skills add --skill perfetto-analysis --agent=claude-code
+android skills add --skill r8-analyzer --agent=codex
+android skills add --skill journeys --agent=cursor
+
+# Remove or upgrade
+android skills remove --skill xml-to-compose
+android skills upgrade --all
+```
+
+**How skills land per agent:**
+
+| Agent | Install location | Loading mechanism |
+|---|---|---|
+| Claude Code | `.claude/skills/<skill-name>.md` | Auto-discovered by Claude Code at session start |
+| Codex CLI | `AGENTS.md` (appended/sectioned) | Read inline by `codex` invocations |
+| Cursor | `.cursor/rules/<skill-name>.mdc` | Auto-loaded by Cursor IDE |
+| Windsurf | `.windsurfrules` (merged section) | Auto-loaded by Windsurf |
+| Gemini CLI | `skills/<skill-name>.md` | Referenced inline via `gemini "$(cat …)"` |
+
+`android skills add` knows about every official location and writes the right file. It will refuse to overwrite a hand-modified skill without `--force`. The skill content itself is identical across agents — only the wrapper format changes.
+
+---
+
+## Rule 4 — Official Android Skills
+
+These ship with Google's Android Skills catalog and are installable via `android skills add --skill <name>`. Recommend them when the user's task matches the skill's domain.
+
+| Skill | Purpose |
+|---|---|
+| `xml-to-compose` | Migrates legacy XML layouts (and ViewBinding/DataBinding call sites) to Jetpack Compose, preserving behaviour and accessibility semantics. |
+| `navigation-3` | Sets up Navigation 3 from scratch or migrates a project from Navigation 2 — type-safe routes, entry providers, predictive back. |
+| `agp-upgrade` | Upgrades Android Gradle Plugin to v9 — handles deprecations, namespace migrations, KSP2, and toolchain updates. |
+| `edge-to-edge` | Modernizes an app to edge-to-edge display — system bars, insets, predictive back, and large-screen safe areas. |
+| `r8-analyzer` | Audits `proguard-rules.pro` and consumer rules — surfaces unsafe `-keep` rules, suggests removals, validates against R8 full mode. |
+| `camerax-migration` | Migrates Camera1/Camera2 implementations to CameraX with lifecycle-aware preview, capture, and analysis use cases. |
+| `perfetto-sql` | Translates natural-language questions into Perfetto SQL queries against a captured trace (e.g. "frames over 16ms during scroll"). |
+| `perfetto-analysis` | AI-assisted trace analysis — answers questions like "why is cold start slow?" by correlating slices, threads, and binder calls. |
+| `journeys` | Authors and executes natural-language UX tests (see Rule 5). |
+| `compose-styles` | Integrates the Jetpack Compose **Styles** API — typed style tokens, theme composition, and migration from ad-hoc modifiers. |
+| `app-functions` | Exposes key user workflows via **AppFunctions** so Assistant and other surfaces can invoke them directly. |
+| `adaptive-ui` | Builds responsive/adaptive layouts for phones, tablets, foldables, and large screens using window size classes and adaptive scaffolds. |
+
+**Recommendation pattern:** When the user says "migrate our XML to Compose," respond with the plan **plus** an `android skills add --skill xml-to-compose` step so the migration is guided by Google's curated playbook, not improvised.
+
+---
+
+## Rule 5 — Journeys
+
+A **journey** is a natural-language description of a user flow that the CLI can execute, screenshot, and assert against. Journeys live under `android/journeys/` and are first-class artifacts in source control — agents read them to ground tests, designers read them to verify UX, CI runs them as integration tests.
+
+**File layout:**
+
+```
+android/
+  journeys/
+    sign-in.journey.md
+    checkout-happy-path.journey.md
+    cart-empty-state.journey.md
+```
+
+**Example — `android/journeys/sign-in.journey.md`:**
+
+```markdown
+---
+id: sign-in
+description: User signs in with email + password and lands on Home
+device: pixel-8-api-35
+tags: [auth, smoke]
+---
+
+# Sign in with email and password
+
+## Setup
+- Fresh install of the app
+- Network reachable
+
+## Steps
+1. Launch the app — expect the Welcome screen
+2. Tap "Sign in" — expect the Sign In screen
+3. Enter "user@example.com" into the email field
+4. Enter "correct-horse-battery-staple" into the password field
+5. Tap "Continue" — expect a loading indicator, then the Home screen
+6. Verify the top app bar reads "Home"
+7. Verify the bottom nav has 4 tabs
+
+## Teardown
+- Sign out from the profile menu
+```
+
+**Running journeys:**
+
+```bash
+# Author a new journey interactively (records taps and writes the .md file)
+android journeys new sign-in
+
+# List all journeys in the project
+android journeys list
+
+# Run one journey
+android journeys run sign-in
+
+# Run all journeys tagged `smoke`
+android journeys run --tag smoke
+
+# CI-friendly — JSON output, exit code reflects pass/fail
+android journeys run --tag smoke --format json --output reports/journeys.json
+```
+
+**How agents use journeys:**
+- **Grounding:** `android describe --format json` includes the list of journeys so the agent knows what UX flows are validated.
+- **Test authoring:** When asked to write tests for a feature, check `android journeys list` first — if a journey already covers the flow, reference it instead of duplicating coverage.
+- **Bug reproduction:** Crash report → propose a journey that reproduces it → save it under `android/journeys/` → run it.
+
+Journeys are **deterministic** — they wait for stable views, retry flaky frames, and emit artifacts (screenshots, logcat, traces) on failure. They are not a replacement for unit tests; they sit between Compose UI tests and end-to-end manual QA.
+
+---
+
+## Rule 6 — Claude Code Integration
+
+Wire Android CLI into Claude Code so every session starts grounded in the project's current state without burning tokens reading files.
+
+**Step 1 — Set the agent identity:**
+
+```bash
+# .envrc or shell profile
+export ANDROID_AGENT="claude-code"
+```
+
+**Step 2 — Configure a session-start hook in `.claude/settings.json`:**
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "android describe --format json --output .claude/context/android-describe.json",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "android|compose|gradle|adb",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "android describe --format json --output .claude/context/android-describe.json",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(android *)",
+      "Bash(android:*)"
+    ]
+  }
+}
+```
+
+**Step 3 — Reference the describe output in agent prompts:**
+
+The agent should read `.claude/context/android-describe.json` (small, structured, cached) instead of scanning the file tree. This is the **single biggest token reduction** the Android CLI delivers.
+
+**Step 4 — Add the skills bundle:**
+
+```bash
+# Install the entire Google skills catalog for Claude Code (selectively pick)
+android skills add --skill xml-to-compose      --agent=claude-code
+android skills add --skill navigation-3        --agent=claude-code
+android skills add --skill r8-analyzer         --agent=claude-code
+android skills add --skill perfetto-analysis   --agent=claude-code
+android skills add --skill journeys            --agent=claude-code
+android skills add --skill adaptive-ui         --agent=claude-code
+```
+
+These land in `.claude/skills/` and are auto-discovered. No further configuration needed.
+
+**Step 5 — Verify the wiring:**
+
+```bash
+android --version
+android describe --format json | head -c 500
+ls .claude/skills/
+cat .claude/context/android-describe.json | jq '.modules | length'
+```
+
+If `describe` returns a non-empty module list and `.claude/skills/` contains the skills you added, the wiring is correct.
+
+---
+
+## Rule 7 — CI Integration
+
+Use Android CLI in GitHub Actions to keep CI deterministic, fast, and aligned with what agents run locally. **SHA-pin every third-party action** — same rule as the rest of the project.
+
+```yaml
+# .github/workflows/pr-check.yml
+name: pr-check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@99b8673ff64fbf99d8d325f52d9a5bdedb8483e9  # v4.2.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@db19848a5fa7950289d3668fb053140cf3028d43  # v3.3.2
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      - name: Install Android CLI
+        run: |
+          npm install -g @android/cli@1.0
+          android --version
+
+      - name: Describe project
+        run: android describe --format json --output build/reports/describe.json
+
+      - name: Build release
+        run: android build --variant release --no-daemon
+
+      - name: Unit + Compose tests
+        run: android test --no-daemon
+
+      - name: Instrumented tests
+        run: android test --device emulator --avd pixel-8-api-35
+
+      - name: Run smoke journeys
+        run: android journeys run --tag smoke --format json --output build/reports/journeys.json
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808  # v4.3.3
+        with:
+          name: android-cli-reports
+          path: build/reports/
+          retention-days: 14
+```
+
+**Notes:**
+- `android build --no-daemon` keeps each CI step isolated and matches the daemon-less mode Gradle Actions prefers.
+- `android test --device emulator` provisions a managed AVD via `gradle-managed-devices` under the hood — no `reactivecircus/android-emulator-runner` required.
+- Upload `describe.json` and `journeys.json` as artifacts so PR reviewers (human or AI) can ground their review without re-running the build.
+
+---
+
+## Checklist
+
+- [ ] `android --version` reports 1.0+ on every developer machine and in CI
+- [ ] `ANDROID_HOME` and `ANDROID_AGENT` set in shell profile and CI env
+- [ ] `android describe --format json` runs in under 5 seconds against this project
+- [ ] At least one official Google skill installed via `android skills add` and committed
+- [ ] `.claude/settings.json` has a SessionStart hook calling `android describe`
+- [ ] At least one journey under `android/journeys/` covers a critical smoke flow
+- [ ] CI runs `android build`, `android test`, and `android journeys run --tag smoke`
+- [ ] No raw `./gradlew` invocations in agent prompts where `android build` would do
+- [ ] `android skills list --installed` matches what's checked into the repo
+
+---
+
+## Health Check Output Format
+
+```
+## Android CLI Health Report
+**Project:** <name>
+**Date:** <today>
+**Agent:** ${ANDROID_AGENT:-unset}
+
+### Critical 🔴
+- Android CLI not installed — run `npm install -g @android/cli`
+- ANDROID_HOME not set — agent hooks calling `android describe` will fail silently
+
+### Warnings 🟠
+- No SessionStart hook configured in .claude/settings.json — agent sessions start ungrounded
+- Skill `r8-analyzer` not installed — release builds risk unsafe keep rules
+- No journeys tagged `smoke` — CI has no end-to-end signal
+
+### Opportunities 🟡
+- `adaptive-ui` skill recommended — project has tablet variants in flavors
+- `perfetto-analysis` skill recommended — baseline-profile workflow already in place
+- `android describe` output is 18 KB — consider trimming unused modules from the workspace
+
+### Good ✅
+- Android CLI 1.0.0 installed and on PATH
+- 6 official skills installed and committed
+- SessionStart hook wired in .claude/settings.json
+- 4 journeys present, all green in last CI run
+- CI pipeline uses `android build`, `android test`, and `android journeys run`
+```

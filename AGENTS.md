@@ -95,6 +95,7 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
 | Release | `/release [task]` | Signing config, Play Store track management, versioning, GitHub releases |
 | Baseline Profile | `/baseline-profile [task]` | Generate and verify Macrobenchmark baseline profiles for startup performance |
+| Android CLI | `/android-cli [task]` | Android CLI 1.0 — agent-ready build/run/test, official skill management, Journeys, CI |
 
 ### Device & QA
 

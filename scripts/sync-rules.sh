@@ -56,6 +56,7 @@ declare -A CURSOR_GLOBS=(
   [security]=""
   [release]=""
   [baseline-profile]="**/*.kt"
+  [android-cli]=""
 )
 
 declare -A CURSOR_ALWAYS_APPLY=(
@@ -78,6 +79,7 @@ declare -A CURSOR_ALWAYS_APPLY=(
   [security]=false
   [release]=false
   [baseline-profile]=false
+  [android-cli]=false
 )
 
 # ---------------------------------------------------------------------------

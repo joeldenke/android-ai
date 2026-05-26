@@ -1,10 +1,12 @@
 ---
-description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type.
+description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type. For deep trace-based profiling with the Android Performance Analyzer and Perfetto SQL, use /performance-analyzer.
 globs: **/*.kt
 alwaysApply: false
 ---
 
 
+
+> For trace-level profiling (Perfetto traces, AI-assisted root-cause analysis, Perfetto SQL queries, GPU counters) use `/performance-analyzer` — the dedicated skill for the Android Performance Analyzer (APA) announced at Google I/O 2026.
 
 ## Performance Diagnostic Framework
 

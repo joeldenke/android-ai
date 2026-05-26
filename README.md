@@ -29,7 +29,7 @@ Run from your Android project root:
 
 | Tool | Command | What you get |
 |---|---|---|
-| **Cursor** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) cursor` | `.cursor/rules/` — 20 MDC rules |
+| **Cursor** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) cursor` | `.cursor/rules/` — 21 MDC rules |
 | **GitHub Copilot** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) copilot` | `.github/copilot-instructions.md` |
 | **Codex CLI** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) codex` | `AGENTS.md` |
 | **Gemini CLI** | `bash <(curl -fsSL https://raw.githubusercontent.com/joeldenke/android-ai/main/scripts/install.sh) gemini` | `skills/` |
@@ -169,6 +169,7 @@ Use `/skill-name` as a slash command (Claude Code), or reference `skills/<name>.
 | `/security [task]` | OWASP Mobile Top 10 audit, cert pinning, secrets hardening |
 | `/baseline-profile [task]` | Generate and verify Macrobenchmark baseline profiles |
 | `/release [task]` | Signing config, Play Store tracks, versioning, GitHub release |
+| `/android-cli [task]` | Android CLI 1.0 — agent-ready build, skills, Journeys, CI integration |
 
 ---
 

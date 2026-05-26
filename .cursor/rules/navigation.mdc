@@ -1,5 +1,5 @@
 ---
-description: Designs and scaffolds type-safe Compose navigation — Navigation 2.x with kotlinx.serialization routes, nested feature graphs, deep links, back-stack policies, graph-scoped ViewModels, bottom-nav integration, and tests with TestNavHostController. DI-agnostic — Hilt shown as primary example, with notes for Koin and manual injection.
+description: Designs and scaffolds type-safe Compose navigation — Navigation 2.x (serialization routes, nested graphs, deep links, back-stack policies, TestNavHostController) and Navigation 3 (NavKey routes, NavDisplay, state-holder back stack, Nav2 migration guide). DI-agnostic.
 globs: **/*.kt
 alwaysApply: true
 ---
@@ -560,6 +560,123 @@ class AppNavHostTest {
 - [ ] `TestNavHostController` covers start destination, primary nav flows, and back-stack reset
 - [ ] Each route has a deep-link test if a deep link is declared
 - [ ] Assertions use `hasRoute<T>()` and `toRoute<T>()`, not string comparison
+
+---
+
+## Navigation 3 — Migration & New Projects
+
+Navigation 3 is a ground-up rewrite designed exclusively for Compose, announced at Google I/O 2026. It replaces `NavHost`/`NavController` with `NavDisplay`/state-holder and removes the NavGraph concept entirely.
+
+> **Use Nav 2.8+ (above rules) for existing projects unless migrating.** Use Nav 3 for greenfield projects or when ready for the migration.
+
+### Install Nav 3
+
+```toml
+# gradle/libs.versions.toml
+[versions]
+navigation3 = "1.0.0-alpha01"   # check latest at d.android.com/jetpack/androidx/releases/navigation3
+
+[libraries]
+navigation3-compose  = { group = "androidx.navigation3", name = "navigation3-compose",  version.ref = "navigation3" }
+navigation3-runtime  = { group = "androidx.navigation3", name = "navigation3-runtime",  version.ref = "navigation3" }
+```
+
+> Or install via Android CLI: `android skills add --skill=navigation-3`
+
+### Key Concepts
+
+| Nav 2 concept | Nav 3 equivalent |
+|---|---|
+| `NavController` | State holder (plain `mutableStateListOf<NavKey>`) |
+| `NavHost` | `NavDisplay` |
+| `composable { }` DSL inside `NavHost` | `entryProvider { addEntryProvider<Route> { } }` |
+| `NavGraph` | Removed — use Kotlin scoping instead |
+| `@Serializable` routes | `@Serializable` routes implementing `NavKey` |
+
+### Routes — implement `NavKey`
+
+```kotlin
+import androidx.navigation3.runtime.NavKey
+import kotlinx.serialization.Serializable
+
+@Serializable
+data object HomeRoute : NavKey
+
+@Serializable
+data class ProfileRoute(val userId: String) : NavKey
+
+@Serializable
+data object SettingsRoute : NavKey
+```
+
+### State Holder
+
+```kotlin
+// Replace NavController with a plain back stack list
+val backStack = rememberSaveable { mutableStateListOf<NavKey>(HomeRoute) }
+
+fun navigate(route: NavKey) { backStack.add(route) }
+fun navigateBack() { if (backStack.size > 1) backStack.removeLast() }
+fun popUpTo(route: NavKey, inclusive: Boolean = false) {
+    val index = backStack.indexOfLast { it == route }
+    if (index != -1) {
+        backStack.subList(if (inclusive) index else index + 1, backStack.size).clear()
+    }
+}
+```
+
+### NavDisplay
+
+```kotlin
+NavDisplay(
+    backStack = backStack,
+    entryDecorators = listOf(
+        rememberSaveableStateHolderNavEntryDecorator(),   // survives recomposition
+        rememberViewModelStoreNavEntryDecorator(),         // scopes ViewModels to entries
+    ),
+    entryProvider = entryProvider {
+        addEntryProvider<HomeRoute> { HomeScreen(onNavigateToProfile = { id -> navigate(ProfileRoute(id)) }) }
+        addEntryProvider<ProfileRoute> { entry ->
+            val route = entry.key  // type-safe, no string parsing
+            ProfileScreen(userId = route.userId, onBack = ::navigateBack)
+        }
+        addEntryProvider<SettingsRoute> { SettingsScreen(onBack = ::navigateBack) }
+    },
+)
+```
+
+### ViewModel scoping with Nav 3
+
+```kotlin
+// ViewModel is scoped to the NavEntry — survives recomposition, cleared on pop
+@Composable
+fun ProfileScreen(
+    userId: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: ProfileViewModel = viewModel(),   // scoped by rememberViewModelStoreNavEntryDecorator
+) { ... }
+```
+
+### Migration from Nav 2 → Nav 3
+
+1. Add Nav 3 dependency alongside Nav 2 (run in parallel during migration)
+2. Convert routes: add `: NavKey` to existing `@Serializable` route classes
+3. Replace `rememberNavController()` + `NavHost` with `mutableStateListOf<NavKey>` + `NavDisplay`
+4. Replace `composable<Route> { }` blocks with `addEntryProvider<Route> { }` blocks
+5. Replace `navController.navigate(Route)` call sites with `backStack.add(Route)`
+6. Replace `navController.popBackStack()` with `backStack.removeLast()`
+7. Remove `NavGraph` nesting — use `if`/`when` in `entryProvider` or extract Kotlin functions
+8. Verify deep links still work — Nav 3 handles `Intent` deep links via `NavDisplay`'s `onBack` integration
+
+### Nav 3 Checklist
+
+- [ ] All routes implement `NavKey` and are `@Serializable`
+- [ ] Back stack is `mutableStateListOf<NavKey>` wrapped in `rememberSaveable`
+- [ ] `rememberSaveableStateHolderNavEntryDecorator()` included in `entryDecorators`
+- [ ] `rememberViewModelStoreNavEntryDecorator()` included for ViewModel scoping
+- [ ] No `NavController` references remain
+- [ ] Deep links verified via `adb shell am start -d <uri>`
 
 ---
 
