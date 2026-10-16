@@ -1,0 +1,30 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Skills follow the Agent Skills spec and adapters are in sync
+        run: bash scripts/sync-rules.sh --check
+
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh hooks/scripts/*.sh; do bash -n "$f"; done
+
+      - name: JSON manifests parse
+        run: |
+          for f in .claude-plugin/*.json hooks/hooks.json mcp/servers.json .claude/settings.json; do
+            python3 -m json.tool "$f" > /dev/null
+          done
