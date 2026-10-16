@@ -86,17 +86,21 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Dependency Injection | `/dependency-injection [task]` | Set up or audit DI — Hilt, Koin, Anvil, Metro, or manual injection |
 | Navigation | `/navigation [task]` | Type-safe Compose Navigation, nested graphs, deep links, back stack |
 | Security | `/security [task]` | OWASP Mobile Top 10 audit, certificate pinning, secrets hardening, Play Integrity |
+| Data Layer | `/data-layer <scenario>` | Offline-first repositories, Room + migrations, DataStore, networking, WorkManager sync |
+| Android Standards | `/android-standards` | Always-on house rules + router to the right skill |
 
 ### Build & CI/CD
 
 | Skill | Command | What it does |
 |---|---|---|
-| Gradle | `/gradle [task]` | Build health check, optimize, manage deps, R8, version catalog, convention plugins |
+| Gradle | `/gradle [task]` | AGP 9 / Gradle 9 health check, upgrades, build speed, convention plugins, supply chain, R8 |
+| Static Analysis | `/static-analysis [task]` | ktlint + Detekt + Compose rules + Android Lint, baselines, CI gates |
 | GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
 | Release | `/release [task]` | Signing config, Play Store track management, versioning, GitHub releases |
 | Baseline Profile | `/baseline-profile [task]` | Generate and verify Macrobenchmark baseline profiles for startup performance |
 | Android CLI | `/android-cli [task]` | Android CLI 1.0 — agent-ready build/run/test, official skill management, Journeys, CI |
 | Performance Analyzer | `/performance-analyzer [task]` | Android Performance Analyzer (APA) — Perfetto traces, AI-assisted root-cause, Perfetto SQL |
+| Google Integrations | `/google-integrations [task]` | Google's official Android skills, Developer Knowledge / Firebase / GCP MCP servers |
 
 ### Device & QA
 
@@ -118,11 +122,13 @@ Reusable slash commands invoked with `/skill-name [args]`.
 
 Automated quality gates that run during Claude Code lifecycle events.
 
+Executable hooks in `hooks/hooks.json` (scripts in `hooks/scripts/`, details in `hooks/README.md`).
+
 | Hook | Event | Action |
 |---|---|---|
-| `session-start` | Session begins | Sets up ktlint, Detekt, validates module structure |
-| `post-tool-lint` | After every file edit | Runs ktlint format + Detekt on changed file |
-| `pre-push-check` | Before git push | Full lint, tests, build validation |
+| `session-start.sh` | Session begins | Prints Gradle/AGP/Kotlin versions, lint setup and AGP 9 red flags into context |
+| `post-edit-lint.sh` | After Write/Edit of `.kt`/`.kts` | `ktlint --format`; blocks on `!!`, `GlobalScope`, Android imports in domain; warns on other anti-patterns |
+| `pre-push-check.sh` | Before an agent-run `git push` | `ktlintCheck`, `detekt` (if configured) and `testDebugUnitTest`; blocks on failure |
 
 **Sub-agent lifecycle hooks** (configured in `.claude/settings.json`):
 - Each specialist prints a status banner when it starts
@@ -173,7 +179,7 @@ Automated quality gates that run during Claude Code lifecycle events.
 - Prefer `Modifier` parameter named exactly `modifier: Modifier = Modifier` in every content-emitting composable
 - Use `semantics {}` for accessibility; test with TalkBack and accessibility scanner
 - Avoid `Modifier.composed {}` — prefer `Modifier.Node` API for custom modifiers
-- Material3 only — no `androidx.compose.material` (M2) imports
+- Design-system agnostic (tokens via `CompositionLocal`; Material3 optional) — never `androidx.compose.material` (M2) imports
 
 ### Slack Compose Rules (full list)
 - **compose:content-emitter-returning-values-check** — emitters must return `Unit`
@@ -198,7 +204,7 @@ Automated quality gates that run during Claude Code lifecycle events.
 - `@Test fun `displays error state when network call fails`()`
 - Use `Turbine` for Flow/StateFlow testing
 - Use `Mockk` (not Mockito) for mocking
-- `InstantTaskExecutorRule` + `TestDispatcher` for ViewModel tests
+- `Dispatchers.setMain(StandardTestDispatcher())` (or a JUnit 5 extension) + `runTest` for ViewModel tests
 - Compose UI tests: `createComposeRule()`, semantic matchers over hardcoded IDs
 - Avoid testing implementation details — test observable behavior
 - Aim for test pyramid: many unit, some integration, few E2E
@@ -207,8 +213,11 @@ Automated quality gates that run during Claude Code lifecycle events.
 - Kotlin DSL (`build.gradle.kts`) for all build files
 - Version Catalog (`libs.versions.toml`) for all dependency versions
 - Convention plugins in `build-logic/` for shared build logic
-- Enable `explicitApi()` for library modules
-- R8 full mode for release builds (`android.enableR8.fullMode=true`)
+- AGP 9: built-in Kotlin (no `kotlin-android` plugin), `kotlin { compilerOptions { } }`, KSP instead of KAPT
+- Configuration cache on; no `allprojects {}` / `subprojects {}`; lazy task APIs
+- `distributionSha256Sum` in the wrapper + `gradle/verification-metadata.xml`
+- Enable `explicitApi()` for shared JVM library modules
+- R8 full mode for release builds (default since AGP 8 — never disable it)
 - Baseline profiles for startup performance
 - Use `lint { abortOnError = true }` in CI
 - `gradle/actions/setup-gradle` for all GitHub Actions workflows (not manual cache steps)
@@ -219,8 +228,30 @@ Automated quality gates that run during Claude Code lifecycle events.
 - Use `/auto-mobile` for AI-driven bug reproduction and UX flow verification
 - Always test in debug builds only — never use device control tools against production
 
+### Google tooling
+- Prefer Google's official Android skills (`android skills add …`) for platform migrations; apply this repo's standards on top
+- Query the Google Developer Knowledge MCP before answering API/version questions
+- Firebase / GCP MCP servers are opt-in (`scripts/install.sh mcp <tool>`); writes need explicit confirmation
+
 ### Design System
 - All design tokens defined as `@Immutable` data classes, provided via `CompositionLocal`
 - Components read from semantic tokens only — never raw colors or hardcoded sizes
 - Use `/figma-verify` to compare implementation against Figma before marking a feature done
 - Use `/figma-sync` to push implementation screenshots back to Figma for design review
+
+---
+
+## Cross-agent support
+
+Skills use the open [Agent Skills](https://agentskills.io) format (`skills/<name>/SKILL.md`), read natively by:
+
+| Agent | Discovery path in this repo / after `install.sh` |
+|---|---|
+| Claude Code | plugin, or `.claude/skills` |
+| Codex CLI | `.agents/skills` + this `AGENTS.md` |
+| GitHub Copilot | `.agents/skills`, `.github/skills`, `.claude/skills` + `.github/copilot-instructions.md` |
+| Cursor | `.agents/skills`, `.claude/skills` + `.cursor/rules/` |
+| Gemini CLI | `.agents/skills` + `GEMINI.md` |
+| Windsurf | `.windsurf/rules/` (pointers to `.agents/skills`) + `.windsurfrules` |
+
+`bash scripts/sync-rules.sh` regenerates every adapter from `skills/`. CI runs `--check` to catch drift.

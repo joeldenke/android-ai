@@ -1,16 +1,18 @@
 {
-  "marketplace": {
-    "name": "Android AI",
-    "description": "Expert-level Android development agents, skills, and hooks for Claude Code"
-  },
+  "name": "android-ai",
   "owner": {
     "name": "Joel Denke"
+  },
+  "metadata": {
+    "description": "Expert-level Android development agents, skills, and hooks — Google, JetBrains, and Slack Compose best practices",
+    "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "android-ai",
       "description": "Full Android dev plugin — agents, skills, and hooks encoding Google, JetBrains, and Slack Compose best practices",
-      "source": "./"
+      "source": "./",
+      "category": "development"
     }
   ]
 }
