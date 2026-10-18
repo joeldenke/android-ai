@@ -39,7 +39,7 @@ codex "Review HomeViewModel.kt for coroutine and architecture issues"
 codex "Write unit tests for UserProfileViewModel using JUnit5 and Turbine"
 ```
 
-> Full agent definitions in [agents.md](agents.md).
+> Full agent definitions in [agents/](agents/).
 
 ### Gemini CLI / AI Studio
 ```bash

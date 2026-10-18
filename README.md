@@ -83,7 +83,7 @@ Where agents have no hooks, the same gates are enforced by Gradle tasks (`/stati
 | `refactor-kotlin` | Modernise to idiomatic Kotlin |
 | `architecture-audit` | Layer violations, coupling, module graph |
 | `code-review` | Review against all rules with severities |
-| `write-tests` | Unit, integration and Compose UI tests (JUnit Jupiter, Turbine, MockK) |
+| `write-tests` | Unit, integration, Compose UI and screenshot tests (JUnit Jupiter, Turbine, MockK, Roborazzi) |
 | `static-analysis` | ktlint + Detekt + Compose rules + Android Lint, baselines, CI gates |
 | `gradle` | AGP 9 / Gradle 9: upgrades, convention plugins, configuration cache, build speed, supply chain, R8 |
 | `github-actions-android` | CI with `gradle/actions`, SHA-pinned actions, Firebase Test Lab |
@@ -136,6 +136,7 @@ mcp/servers.json            ← canonical MCP server list (used by install.sh mc
 AGENTS.md                   ← index + Codex instructions
 scripts/install.sh          ← installer (--help)
 scripts/sync-rules.sh       ← regenerate adapters; --check validates skills and detects drift (CI)
+scripts/smoke-test.sh       ← behavioural tests for the hooks + installer (CI)
 ```
 
 After editing a skill:

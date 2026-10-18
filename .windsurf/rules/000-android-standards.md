@@ -20,7 +20,7 @@ These standards apply to every Android task. Specialised skills go deeper. The r
 | Async | Coroutines + Flow. No RxJava, no callbacks, no `GlobalScope`. Inject dispatchers. |
 | UI | Jetpack Compose. Design-system agnostic: `@Immutable` token data classes provided through `CompositionLocal`. Components never read raw colours or sizes. Material3 is optional. |
 | Compose rules | Slack/`io.nlopez` compose rules: `modifier: Modifier = Modifier` on every emitter, state hoisting, no ViewModel parameters, stable params, `collectAsStateWithLifecycle()` |
-| Testing | JUnit Jupiter (5/6) + Turbine + MockK + `kotlinx-coroutines-test` + Compose UI test. Fakes over mocks for repositories. |
+| Testing | JUnit Jupiter (5/6) + Turbine + MockK + `kotlinx-coroutines-test` + Compose UI test + screenshot tests (Roborazzi — see `write-tests`). Fakes over mocks for repositories. |
 | Lint | ktlint + Detekt + compose rules + Android Lint. Zero warnings, and baselines only for legacy code. |
 | Build | Kotlin DSL, `libs.versions.toml`, convention plugins in `build-logic/`, configuration cache on, AGP 9 built-in Kotlin |
 | CI | `gradle/actions/setup-gradle`, actions pinned to full SHA, configuration-cache encryption key as a secret |
