@@ -55,7 +55,7 @@ if [[ -z "$TOOL" || "$TOOL" == "--help" || "$TOOL" == "-h" || "$TOOL" == "help" 
 fi
 
 # Use a local checkout when run from one (ANDROID_AI_SRC or ../ of this script), otherwise clone.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || SCRIPT_DIR=""
 if [[ -n "${ANDROID_AI_SRC:-}" ]]; then
   SRC="$ANDROID_AI_SRC"
 elif [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/../skills/android-standards/SKILL.md" ]]; then
@@ -77,7 +77,7 @@ install_skills() {   # real files in .agents/skills (read by Codex, Gemini, Curs
     rm -rf ".agents/skills/$name"
     cp -R "$dir" ".agents/skills/$name"
   done
-  echo "  ✓ .agents/skills/ ($(ls -d "$SRC"/skills/*/ | wc -l | tr -d ' ') skills)"
+  echo "  ✓ .agents/skills/ ($(find "$SRC/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ') skills)"
 }
 
 link_skills_dir() {  # link_skills_dir <dir>: point another agent's skill dir at .agents/skills
@@ -122,7 +122,7 @@ install_claude() {
   link_skills_dir .claude/skills
   mkdir -p .claude/agents
   cp "$SRC"/agents/*.md .claude/agents/
-  echo "  ✓ .claude/agents/ ($(ls "$SRC"/agents/*.md | wc -l | tr -d ' ') agents)"
+  echo "  ✓ .claude/agents/ ($(find "$SRC/agents" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ') agents)"
 }
 
 install_cursor() {
@@ -130,7 +130,7 @@ install_cursor() {
   install_skills
   mkdir -p .cursor/rules
   cp "$SRC"/.cursor/rules/*.mdc .cursor/rules/
-  echo "  ✓ .cursor/rules/ ($(ls "$SRC"/.cursor/rules/*.mdc | wc -l | tr -d ' ') rules)"
+  echo "  ✓ .cursor/rules/ ($(find "$SRC/.cursor/rules" -maxdepth 1 -name '*.mdc' | wc -l | tr -d ' ') rules)"
 }
 
 install_copilot() {
@@ -161,7 +161,7 @@ install_windsurf() {
   install_skills
   mkdir -p .windsurf/rules
   cp "$SRC"/.windsurf/rules/*.md .windsurf/rules/
-  echo "  ✓ .windsurf/rules/ ($(ls "$SRC"/.windsurf/rules/*.md | wc -l | tr -d ' ') rules)"
+  echo "  ✓ .windsurf/rules/ ($(find "$SRC/.windsurf/rules" -maxdepth 1 -name '*.md' | wc -l | tr -d ' ') rules)"
   upsert_block .windsurfrules "$SRC/.windsurfrules"
 }
 

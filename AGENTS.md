@@ -206,6 +206,7 @@ Executable hooks in `hooks/hooks.json` (scripts in `hooks/scripts/`, details in 
 - Use `Mockk` (not Mockito) for mocking
 - `Dispatchers.setMain(StandardTestDispatcher())` (or a JUnit 5 extension) + `runTest` for ViewModel tests
 - Compose UI tests: `createComposeRule()`, semantic matchers over hardcoded IDs
+- Screenshot tests: Roborazzi on the JVM unit-test lane for design-system components and screen states; commit goldens with the code change (see the `write-tests` skill)
 - Avoid testing implementation details — test observable behavior
 - Aim for test pyramid: many unit, some integration, few E2E
 

@@ -20,8 +20,13 @@ jobs:
       - name: Skills follow the Agent Skills spec and adapters are in sync
         run: bash scripts/sync-rules.sh --check
 
-      - name: Shell scripts parse
-        run: for f in scripts/*.sh hooks/scripts/*.sh; do bash -n "$f"; done
+      - name: Shell scripts parse and pass shellcheck
+        run: |
+          for f in scripts/*.sh hooks/scripts/*.sh; do bash -n "$f"; done
+          shellcheck scripts/*.sh hooks/scripts/*.sh
+
+      - name: Hook and installer smoke tests
+        run: bash scripts/smoke-test.sh
 
       - name: JSON manifests parse
         run: |

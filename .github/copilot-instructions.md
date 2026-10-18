@@ -16,7 +16,7 @@ These standards apply to every Android task. Specialised skills go deeper. The r
 | Async | Coroutines + Flow. No RxJava, no callbacks, no `GlobalScope`. Inject dispatchers. |
 | UI | Jetpack Compose. Design-system agnostic: `@Immutable` token data classes provided through `CompositionLocal`. Components never read raw colours or sizes. Material3 is optional. |
 | Compose rules | Slack/`io.nlopez` compose rules: `modifier: Modifier = Modifier` on every emitter, state hoisting, no ViewModel parameters, stable params, `collectAsStateWithLifecycle()` |
-| Testing | JUnit Jupiter (5/6) + Turbine + MockK + `kotlinx-coroutines-test` + Compose UI test. Fakes over mocks for repositories. |
+| Testing | JUnit Jupiter (5/6) + Turbine + MockK + `kotlinx-coroutines-test` + Compose UI test + screenshot tests (Roborazzi — see `write-tests`). Fakes over mocks for repositories. |
 | Lint | ktlint + Detekt + compose rules + Android Lint. Zero warnings, and baselines only for legacy code. |
 | Build | Kotlin DSL, `libs.versions.toml`, convention plugins in `build-logic/`, configuration cache on, AGP 9 built-in Kotlin |
 | CI | `gradle/actions/setup-gradle`, actions pinned to full SHA, configuration-cache encryption key as a secret |
@@ -80,4 +80,4 @@ Detailed playbooks in the open Agent Skills format. Before working on a matching
 | `release` | End-to-end Android release engineering — version bumping, keystore signing, App Bundle production, Gradle Play Publisher promotion across Play Store tracks, GitHub Releases with AAB/APK artifacts, Conventional-Commits changelog generation, R8 full mode verification, and a comprehensive pre-release safety checklist. | `.agents/skills/release/SKILL.md` |
 | `security` | Android security audit and hardening — OWASP Mobile Top 10, certificate pinning, secrets management, Play Integrity, network security config, encrypted storage, and ProGuard/R8 security rules. | `.agents/skills/security/SKILL.md` |
 | `static-analysis` | Sets up and enforces static analysis for Android — ktlint (formatting), Detekt (code smells) with Compose rules (io.nlopez/Slack), and Android Lint — via convention plugins with a zero-warnings policy, baselines for legacy code, .editorconfig, and CI/pre-commit wiring. Use when adding or fixing lint tooling, triaging lint failures, or creating baselines. | `.agents/skills/static-analysis/SKILL.md` |
-| `write-tests` | Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases. Uses JUnit5 + Turbine + Mockk + Compose UI test. | `.agents/skills/write-tests/SKILL.md` |
+| `write-tests` | Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases, and screenshot (golden image) tests. Uses JUnit5 + Turbine + Mockk + Compose UI test + Roborazzi. | `.agents/skills/write-tests/SKILL.md` |

@@ -1,6 +1,6 @@
 ---
 name: write-tests
-description: Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases. Uses JUnit5 + Turbine + Mockk + Compose UI test.
+description: Generates a comprehensive test suite for a given target — ViewModel, UseCase, Repository, Composable, or full feature. Covers happy path, error paths, edge cases, and screenshot (golden image) tests. Uses JUnit5 + Turbine + Mockk + Compose UI test + Roborazzi.
 ---
 
 When the user runs `/write-tests <target>`, generate a complete, production-quality test suite for the specified class or feature.
@@ -12,7 +12,8 @@ For any target, produce:
 2. **ViewModel tests** with Flow/StateFlow assertions via Turbine
 3. **Repository tests** with fakes for data sources
 4. **Compose UI tests** for screens and key components
-5. **Shared test utilities** (fakes, builders, rules)
+5. **Screenshot tests** for design-system components and screen states (see below)
+6. **Shared test utilities** (fakes, builders, rules)
 
 ---
 
@@ -284,6 +285,63 @@ class HomeScreenTest {
     }
 }
 ```
+
+---
+
+## Screenshot Tests
+
+Semantic assertions miss visual regressions (spacing, colours, clipping, dark mode). Add golden-image screenshot tests for design-system components and key screen states. Choose **one** tool per project:
+
+| Tool | Runs on | Best for | Notes |
+|---|---|---|---|
+| **Roborazzi** (1.76.0, Sep 2026 — verify current) | JVM via Robolectric: ordinary unit-test lane | Compose components and screens; auto-generates a test for every `@Preview` via ComposablePreviewScanner | Community standard; `record`/`compare`/`verify` Gradle tasks; commit goldens to git |
+| **Compose Preview Screenshot Testing** (official Google; engine 0.0.1-alpha16, AGP 9.0+) | `screenshotTest` source set | Teams standardising on Google tooling | On AGP 9.5.0-alpha03+ use the AGP **test suites** integration (no standalone plugin). On AGP 9.0–9.4 use `com.android.compose.screenshot`. Previews must carry `@PreviewTest`. Goldens live in `src/screenshotTest<Variant>/reference/` |
+| **Paparazzi** | JVM via layoutlib | View-based screens during XML→Compose migration | Same golden-image workflow; no Robolectric |
+
+Roborazzi is the default recommendation: it keeps screenshots in the fast JVM lane (fits the unit-test convention plugin — see the `gradle` skill) and covers previews, components and full screens with one dependency.
+
+### Roborazzi setup
+
+```toml
+# gradle/libs.versions.toml
+[versions]
+roborazzi = "1.76.0"   # always verify: github.com/takahirom/roborazzi/releases
+[plugins]
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+[libraries]
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
+```
+
+```kotlin
+// build-logic/.../AndroidUnitTestConventionPlugin.kt
+plugins { alias(libs.plugins.roborazzi) }
+dependencies { "testImplementation"(libs.roborazzi.compose) }
+```
+
+```kotlin
+// src/test/.../PrimaryButtonScreenshotTest.kt
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = RobolectricDeviceQualifiers.Pixel_7)
+class PrimaryButtonScreenshotTest {
+
+    @get:Rule val composeRule = createComposeRule()
+
+    @Test
+    fun `primary button renders expected pixels`() {
+        composeRule.setContent { AppTheme { PrimaryButton(text = "Continue", onClick = {}) } }
+        composeRule.onRoot().captureRoboImage()
+    }
+}
+```
+
+### Golden-image workflow
+
+1. **Record**: `./gradlew recordRoborazziDebug` — commit the generated PNGs with the component.
+2. **Verify**: `./gradlew compareRoborazziDebug` (or `verifyRoborazziDebug`) — fails on pixel diff; diff images land under `build/outputs/roborazzi/`.
+3. **CI**: run compare/verify in the unit-test job; on failure upload the diff images as artefacts.
+4. **Intentional UI changes**: re-record in the *same* PR as the code change so reviewers see code + golden diff together. Never re-record to silence an unexplained failure.
+5. **Coverage**: every design-system component in all states (default, pressed, disabled, dark), plus one screenshot per screen's loading/success/error state. Skip text-heavy screens already covered by semantics tests.
 
 ---
 
