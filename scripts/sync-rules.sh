@@ -1,170 +1,207 @@
 #!/usr/bin/env bash
-# sync-rules.sh — generate tool-specific rule adapters from skills/ source of truth
+# sync-rules.sh — generate per-agent adapters from skills/ (the single source of truth)
 #
-# Produces:
-#   .cursor/rules/<skill>.mdc   Cursor rule files (alwaysApply or glob-triggered)
-#   .windsurfrules              Windsurf flat-file rules (coding standards only)
+# Skills follow the open Agent Skills format (skills/<name>/SKILL.md) and are read natively by
+# Claude Code (.claude/skills), Codex, Gemini CLI, Cursor and Copilot (.agents/skills). The files
+# generated here are the always-on standards plus a skill index for each tool's rules mechanism:
+#
+#   .cursor/rules/000-android-standards.mdc   always-on standards
+#   .cursor/rules/<skill>.mdc                 pointer rules (glob-attached or agent-requested)
+#   .windsurf/rules/000-android-standards.md  always-on standards
+#   .windsurf/rules/<skill>.md                pointer rules (glob or model_decision)
+#   .windsurfrules                            legacy single-file rules (standards only, < 6k chars)
+#   .github/copilot-instructions.md           standards + index for GitHub Copilot
+#   GEMINI.md                                 standards + index for Gemini CLI
 #
 # Usage:
-#   bash scripts/sync-rules.sh          # regenerate all
-#   bash scripts/sync-rules.sh --dry    # preview only
+#   bash scripts/sync-rules.sh           # regenerate everything
+#   bash scripts/sync-rules.sh --check   # exit 1 if generated files are stale or skills are invalid (CI)
 
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+MODE="write"
+[[ "${1:-}" == "--check" ]] && MODE="check"
+
 SKILLS_DIR="skills"
-CURSOR_DIR=".cursor/rules"
-WINDSURFRULES=".windsurfrules"
-DRY_RUN=false
+SKILL_PATH_PREFIX=".agents/skills"   # path agents are told to read (symlink to skills/ in this repo)
+OUT="$ROOT"
+if [[ "$MODE" == "check" ]]; then
+  OUT="$(mktemp -d)"
+  trap 'rm -rf "$OUT"' EXIT
+fi
 
-[[ "${1:-}" == "--dry" ]] && DRY_RUN=true
+# File globs that auto-attach a skill in Cursor / Windsurf. Skills without globs are agent-requested.
+declare -A GLOBS=(
+  [android-standards]="**/*.kt,**/*.kts"
+  [compose-component]="**/*.kt"
+  [refactor-kotlin]="**/*.kt"
+  [coroutine-flow]="**/*.kt"
+  [write-tests]="**/test/**/*.kt,**/androidTest/**/*.kt"
+  [gradle]="**/*.gradle.kts,**/libs.versions.toml,**/gradle.properties,**/build-logic/**"
+  [static-analysis]="**/detekt.yml,**/.editorconfig,**/lint.xml"
+  [github-actions-android]=".github/workflows/*.yml,.github/workflows/*.yaml"
+  [data-layer]="**/data/**/*.kt,**/database/**/*.kt,**/network/**/*.kt"
+  [navigation]="**/navigation/**/*.kt"
+  [dependency-injection]="**/di/**/*.kt"
+  [baseline-profile]="**/baselineprofile/**/*.kt"
+)
 
-write_file() {
-  local path="$1"
-  local content="$2"
-  if $DRY_RUN; then
-    echo "── $path ──────────────────────────────"
-    echo "$content" | head -20
-    echo "..."
-  else
-    echo "$content" > "$path"
-    echo "  wrote $path"
-  fi
+# ---------------------------------------------------------------------------
+# Validate skills against the Agent Skills spec
+# ---------------------------------------------------------------------------
+errors=0
+frontmatter_field() { awk -v k="$2" '/^---$/{n++; next} n==1 && $0 ~ "^"k":" {sub("^"k":[ ]*",""); print; exit}' "$1"; }
+
+skills=()
+for dir in "$SKILLS_DIR"/*/; do
+  name="$(basename "$dir")"
+  file="$dir/SKILL.md"
+  if [[ ! -f "$file" ]]; then echo "error: $dir has no SKILL.md" >&2; errors=$((errors + 1)); continue; fi
+  fm_name="$(frontmatter_field "$file" name)"
+  desc="$(frontmatter_field "$file" description)"
+  [[ "$fm_name" == "$name" ]] || { echo "error: $file name '$fm_name' != directory '$name'" >&2; errors=$((errors + 1)); }
+  [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ && ${#name} -le 64 ]] || { echo "error: invalid skill name '$name'" >&2; errors=$((errors + 1)); }
+  [[ -n "$desc" && ${#desc} -le 1024 ]] || { echo "error: $file description missing or > 1024 chars" >&2; errors=$((errors + 1)); }
+  skills+=("$name")
+done
+for stray in "$SKILLS_DIR"/*.md; do
+  [[ -e "$stray" ]] && { echo "error: $stray — skills must be folders (skills/<name>/SKILL.md)" >&2; errors=$((errors + 1)); }
+done
+((errors == 0)) || { echo "$errors skill validation error(s)" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Shared content
+# ---------------------------------------------------------------------------
+body_of() { awk '/^---$/{n++; next} n>=2 {print}' "$1"; }
+
+standards="$(body_of "$SKILLS_DIR/android-standards/SKILL.md" | sed "s#](\.\./\([a-z-]*\)/SKILL\.md)#](${SKILL_PATH_PREFIX}/\1/SKILL.md)#g")"
+
+skill_index() {
+  echo "## Skills"
+  echo
+  echo "Detailed playbooks in the open Agent Skills format. Before working on a matching task, read the skill's \`SKILL.md\` and follow it."
+  echo
+  echo "| Skill | Use when | File |"
+  echo "|---|---|---|"
+  for s in "${skills[@]}"; do
+    d="$(frontmatter_field "$SKILLS_DIR/$s/SKILL.md" description | sed 's/|/\\|/g')"
+    echo "| \`$s\` | $d | \`${SKILL_PATH_PREFIX}/$s/SKILL.md\` |"
+  done
+}
+
+header() { printf '%s\n' "<!-- Generated by scripts/sync-rules.sh from skills/ — do not edit. -->"; }
+
+emit() {  # emit <relative path>  (content on stdin)
+  local path="$OUT/$1"
+  mkdir -p "$(dirname "$path")"
+  cat > "$path"
 }
 
 # ---------------------------------------------------------------------------
-# Skill → Cursor MDC mapping
-# Each entry: "skill-name|globs|alwaysApply"
-# globs="" means alwaysApply governs; globs="**/*.kt" means file-triggered
+# Cursor
 # ---------------------------------------------------------------------------
-declare -A CURSOR_GLOBS=(
-  [new-feature]=""
-  [compose-component]="**/*.kt"
-  [code-review]=""
-  [refactor-kotlin]="**/*.kt"
-  [coroutine-flow]="**/*.kt"
-  [architecture-audit]=""
-  [debug-performance]="**/*.kt"
-  [write-tests]="**/*Test*.kt,**/*Spec*.kt"
-  [gradle]="**/*.gradle.kts,**/libs.versions.toml"
-  [github-actions-android]="**/.github/workflows/*.yml,**/.github/workflows/*.yaml"
-  [dependency-injection]="**/*.kt"
-  [adb]=""
-  [auto-mobile]=""
-  [figma-verify]=""
-  [figma-sync]=""
-)
+{
+  printf -- '---\ndescription: Android coding standards — always applied\nalwaysApply: true\n---\n\n'
+  header; echo
+  echo "# Android standards"
+  echo "$standards"
+} | emit ".cursor/rules/000-android-standards.mdc"
 
-declare -A CURSOR_ALWAYS_APPLY=(
-  [new-feature]=false
-  [compose-component]=true
-  [code-review]=false
-  [refactor-kotlin]=true
-  [coroutine-flow]=true
-  [architecture-audit]=false
-  [debug-performance]=false
-  [write-tests]=false
-  [gradle]=true
-  [github-actions-android]=true
-  [dependency-injection]=true
-  [adb]=false
-  [auto-mobile]=false
-  [figma-verify]=false
-  [figma-sync]=false
-)
-
-# ---------------------------------------------------------------------------
-# Generate .cursor/rules/<skill>.mdc
-# ---------------------------------------------------------------------------
-echo "Generating .cursor/rules/ from ${SKILLS_DIR}/ ..."
-
-for skill_file in "$SKILLS_DIR"/*.md; do
-  skill_name=$(basename "$skill_file" .md)
-
-  # Extract frontmatter description
-  description=$(awk '/^description:/{sub(/^description: /,""); print; exit}' "$skill_file")
-
-  globs="${CURSOR_GLOBS[$skill_name]:-}"
-  always_apply="${CURSOR_ALWAYS_APPLY[$skill_name]:-false}"
-
-  # Build frontmatter
-  frontmatter="---"$'\n'"description: ${description}"
-  [[ -n "$globs" ]] && frontmatter+=$'\n'"globs: ${globs}"
-  frontmatter+=$'\n'"alwaysApply: ${always_apply}"
-  frontmatter+=$'\n'"---"
-
-  # Strip YAML front matter + "When the user runs /X" dispatch line from source,
-  # leaving only the actionable rule content
-  body=$(awk '
-    /^---$/ { if (fm<2) { fm++; next } }
-    fm==2 && /^When the user runs / { next }
-    fm==2 { print }
-  ' "$skill_file")
-
-  content="${frontmatter}"$'\n\n'"${body}"
-
-  write_file "${CURSOR_DIR}/${skill_name}.mdc" "$content"
+for s in "${skills[@]}"; do
+  [[ "$s" == "android-standards" ]] && continue
+  desc="$(frontmatter_field "$SKILLS_DIR/$s/SKILL.md" description)"
+  {
+    echo "---"
+    echo "description: $desc"
+    [[ -n "${GLOBS[$s]:-}" ]] && echo "globs: ${GLOBS[$s]}"
+    echo "alwaysApply: false"
+    echo "---"
+    echo
+    header
+    echo
+    echo "Read and follow \`${SKILL_PATH_PREFIX}/$s/SKILL.md\` (and any \`references/\` files it links) before acting on this task."
+  } | emit ".cursor/rules/$s.mdc"
 done
 
-# Always-on base standards rule (sourced from CLAUDE.md coding standards)
-standards_body=$(awk '
-  /^## Coding Standards/ { found=1 }
-  found { print }
-  /^## Key References/ { exit }
-' CLAUDE.md)
-
-base_rule="---
-description: Android AI base coding standards — enforced on every file
-alwaysApply: true
----
-
-${standards_body}"
-
-write_file "${CURSOR_DIR}/000-base-standards.mdc" "$base_rule"
-
 # ---------------------------------------------------------------------------
-# Generate .windsurfrules (flat markdown, Windsurf reads this like .cursorrules)
-# Windsurf supports a single flat file — concatenate standards + key skills
+# Windsurf (.windsurf/rules: 12k chars per file, so pointers instead of full bodies)
 # ---------------------------------------------------------------------------
-echo "Generating $WINDSURFRULES ..."
+{
+  printf -- '---\ntrigger: always_on\n---\n\n'
+  header; echo
+  echo "# Android standards"
+  echo "$standards"
+} | emit ".windsurf/rules/000-android-standards.md"
 
-windsurf_header="# Android AI — Coding Standards
-# Auto-generated by scripts/sync-rules.sh — do not edit directly
-# Source of truth: skills/ and CLAUDE.md
-"
-
-# Pull coding standards from CLAUDE.md
-windsurf_standards=$(awk '
-  /^## Coding Standards/ { found=1 }
-  found { print }
-  /^## Key References/ { exit }
-' CLAUDE.md)
-
-# Pull body content from highest-value always-on skills
-always_on_skills=("compose-component" "refactor-kotlin" "coroutine-flow" "gradle" "github-actions-android")
-
-windsurf_skills=""
-for skill in "${always_on_skills[@]}"; do
-  skill_file="${SKILLS_DIR}/${skill}.md"
-  [[ -f "$skill_file" ]] || continue
-  skill_body=$(awk '
-    /^---$/ { if (fm<2) { fm++; next } }
-    fm==2 && /^When the user runs / { next }
-    fm==2 { print }
-  ' "$skill_file")
-  windsurf_skills+=$'\n\n---\n\n'"${skill_body}"
+for s in "${skills[@]}"; do
+  [[ "$s" == "android-standards" ]] && continue
+  desc="$(frontmatter_field "$SKILLS_DIR/$s/SKILL.md" description)"
+  {
+    echo "---"
+    if [[ -n "${GLOBS[$s]:-}" ]]; then
+      echo "trigger: glob"
+      echo "globs: ${GLOBS[$s]}"
+    else
+      echo "trigger: model_decision"
+    fi
+    echo "description: $desc"
+    echo "---"
+    echo
+    header
+    echo
+    echo "Read and follow \`${SKILL_PATH_PREFIX}/$s/SKILL.md\` (and any \`references/\` files it links) before acting on this task."
+  } | emit ".windsurf/rules/$s.md"
 done
 
-write_file "$WINDSURFRULES" "${windsurf_header}${windsurf_standards}${windsurf_skills}"
+# ---------------------------------------------------------------------------
+# Single-file adapters: legacy Windsurf, GitHub Copilot, Gemini CLI
+# ---------------------------------------------------------------------------
+single_file() {
+  header; echo
+  echo "# $1"
+  echo "$standards"
+  echo
+  skill_index
+}
+
+{ header; echo; echo "# Android AI — standards for Windsurf (legacy file; .windsurf/rules/ holds the skill rules)"; echo "$standards"; } | emit ".windsurfrules"
+single_file "Android AI — Copilot instructions" | emit ".github/copilot-instructions.md"
+single_file "Android AI — Gemini CLI context" | emit "GEMINI.md"
 
 # ---------------------------------------------------------------------------
-echo ""
-echo "Done. Tool-specific files generated:"
-echo "  .cursor/rules/  (${#CURSOR_GLOBS[@]} skills + 1 base standards rule)"
-echo "  .windsurfrules  (coding standards + 5 always-on skills)"
-echo ""
-echo "Codex: AGENTS.md already serves as the Codex AGENTS.md — no separate generation needed."
-echo ""
-echo "To regenerate after editing a skill:"
-echo "  bash scripts/sync-rules.sh"
-echo ""
-echo "Note: claude/agents, claude/skills, claude/hooks → ../agents, ../skills, ../hooks  (root is source of truth)"
+# Check mode: compare against committed files
+# ---------------------------------------------------------------------------
+if [[ "$MODE" == "check" ]]; then
+  stale=0
+  while IFS= read -r -d '' f; do
+    rel="${f#"$OUT"/}"
+    if ! cmp -s "$f" "$ROOT/$rel"; then echo "stale: $rel" >&2; stale=1; fi
+  done < <(find "$OUT" -type f -print0)
+  for f in "$ROOT"/.cursor/rules/*.mdc "$ROOT"/.windsurf/rules/*.md; do
+    rel="${f#"$ROOT"/}"
+    [[ -e "$OUT/$rel" ]] || { echo "orphaned: $rel (no matching skill)" >&2; stale=1; }
+  done
+  [[ -L "$ROOT/.agents/skills" ]] || { echo "missing symlink: .agents/skills -> ../skills" >&2; stale=1; }
+  [[ -L "$ROOT/.claude/skills" ]] || { echo "missing symlink: .claude/skills -> ../skills" >&2; stale=1; }
+  if ((stale)); then echo "Run: bash scripts/sync-rules.sh" >&2; exit 1; fi
+  echo "Adapters are up to date (${#skills[@]} skills)."
+  exit 0
+fi
+
+# Remove adapters for skills that no longer exist
+for f in .cursor/rules/*.mdc .windsurf/rules/*.md; do
+  [[ -e "$f" ]] || continue
+  base="$(basename "$f")"; base="${base%.*}"
+  [[ "$base" == 000-* || -d "$SKILLS_DIR/$base" ]] || { rm "$f"; echo "  removed $f"; }
+done
+
+mkdir -p .agents .claude
+[[ -L .agents/skills ]] || ln -s ../skills .agents/skills
+[[ -L .claude/skills ]] || ln -s ../skills .claude/skills
+
+echo "Generated adapters for ${#skills[@]} skills:"
+echo "  .cursor/rules/  .windsurf/rules/  .windsurfrules  .github/copilot-instructions.md  GEMINI.md"
+echo "Native skill discovery: .claude/skills -> skills (Claude Code), .agents/skills -> skills (Codex, Gemini, Cursor, Copilot)"

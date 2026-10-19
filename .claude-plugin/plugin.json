@@ -1,8 +1,10 @@
 {
   "name": "android-ai",
-  "description": "Expert-level Android development agents, skills, and hooks for Claude Code",
-  "version": "1.0.0",
-  "author": "joeldenke",
+  "description": "Expert-level Android development agents, skills, and hooks — Kotlin, Compose, coroutines, Gradle, CI, release",
+  "version": "1.2.0",
+  "author": {
+    "name": "Joel Denke"
+  },
   "repository": "https://github.com/joeldenke/android-ai",
-  "keywords": ["android", "kotlin", "jetpack-compose", "mvvm", "clean-architecture", "coroutines"]
+  "keywords": ["android", "kotlin", "jetpack-compose", "gradle", "mvvm", "clean-architecture", "coroutines", "agent-skills"]
 }

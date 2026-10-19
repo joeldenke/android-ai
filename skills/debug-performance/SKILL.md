@@ -1,9 +1,11 @@
 ---
 name: debug-performance
-description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type.
+description: Diagnoses and fixes Compose recomposition, memory leaks, startup latency, jank, and overdraw issues. Provides a systematic investigation process with concrete fixes for each problem type. For deep trace-based profiling with the Android Performance Analyzer and Perfetto SQL, use /performance-analyzer.
 ---
 
 When the user runs `/debug-performance <screen or area>`, apply the following diagnostic framework.
+
+> For trace-level profiling (Perfetto traces, AI-assisted root-cause analysis, Perfetto SQL queries, GPU counters) use `/performance-analyzer` — the dedicated skill for the Android Performance Analyzer (APA) announced at Google I/O 2026.
 
 ## Performance Diagnostic Framework
 
@@ -21,14 +23,10 @@ Ask the user (or infer from context):
 
 ### Step 1: Enable Compose Compiler Metrics
 ```kotlin
-// In build.gradle.kts of the feature module
-android {
-    kotlinOptions {
-        freeCompilerArgs += listOf(
-            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=${project.buildDir}/compose_metrics",
-            "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=${project.buildDir}/compose_metrics",
-        )
-    }
+// In build.gradle.kts of the feature module (or once, in the Compose convention plugin)
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_metrics")
+    metricsDestination = layout.buildDirectory.dir("compose_metrics")
 }
 // After build, inspect: build/compose_metrics/*.txt
 // Look for: "unstable" classes, "skippable: false" composables

@@ -360,7 +360,7 @@ When auditing, report findings as:
 - `AuthService` references `Context` directly in domain layer
   → Move to `:core:android` and inject via interface abstraction
 
-### 🔧 Recommendations
+### Recommendations
 1. Extract `NetworkModule` from `AppModule` (~18 bindings)
 2. Add `FakeUserRepository` to `:core:test-fixtures` for shared test reuse
 ```
