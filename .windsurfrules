@@ -42,6 +42,8 @@ These standards apply to every Android task. Specialised skills go deeper. The r
 | Tests | `write-tests` |
 | ktlint / Detekt / Lint / compose rules setup | `static-analysis` |
 | Gradle, AGP/Kotlin upgrades, build speed | `gradle` |
+| Gradle best-practices audit, or applying its fixes | `gradle-best-practices` (Gradle's official skill) |
+| Gradle wrapper upgrade | `gradle-wrapper-upgrade` (Gradle's official skill) |
 | CI | `github-actions-android` |
 | Release & Play Store | `release` |
 | Security | `security` |

@@ -41,6 +41,7 @@ declare -A GLOBS=(
   [coroutine-flow]="**/*.kt"
   [write-tests]="**/test/**/*.kt,**/androidTest/**/*.kt"
   [gradle]="**/*.gradle.kts,**/libs.versions.toml,**/gradle.properties,**/build-logic/**"
+  [gradle-wrapper-upgrade]="**/gradle/wrapper/gradle-wrapper.properties"
   [static-analysis]="**/detekt.yml,**/.editorconfig,**/lint.xml"
   [github-actions-android]=".github/workflows/*.yml,.github/workflows/*.yaml"
   [data-layer]="**/data/**/*.kt,**/database/**/*.kt,**/network/**/*.kt"

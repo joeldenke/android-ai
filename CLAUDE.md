@@ -93,6 +93,7 @@ scripts/
 
 - A skill is a folder: `skills/<name>/SKILL.md` with `name` (= folder name, kebab-case) and `description` (≤ 1024 chars, says *when* to use it). Long material goes in `skills/<name>/references/*.md` and is linked from SKILL.md.
 - Never add flat `skills/*.md` files. No agent discovers them.
+- `skills/gradle-best-practices` and `skills/gradle-wrapper-upgrade` are Gradle's official skills ([gradle/gradle-skills](https://github.com/gradle/gradle-skills)), vendored unchanged. Never edit them: bump `REF` in `scripts/vendor-gradle-skills.sh`, re-run it, then `sync-rules.sh`.
 - After any skill change, run `bash scripts/sync-rules.sh` and commit the generated files. CI fails on drift.
 - Versions in skills must be verified (Maven Central, Google Maven, release notes). Never guess.
 

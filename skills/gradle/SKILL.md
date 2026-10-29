@@ -21,6 +21,17 @@ When the user runs `/gradle [task]`, analyse the Gradle setup and perform the re
 | `/gradle badging` | Add the app-badging guard — see [references/app-badging.md](references/app-badging.md) |
 | `/gradle versions` | Report outdated dependencies and propose catalog updates |
 
+## Gradle's official skills come first for audits and wrapper upgrades
+
+Two skills from Gradle, Inc. ([gradle/gradle-skills](https://github.com/gradle/gradle-skills)) ship alongside this one, vendored unchanged by `scripts/vendor-gradle-skills.sh`. They own their tasks; this skill owns the Android side (AGP, built-in Kotlin, R8, variants, badging).
+
+| Task | Use |
+|---|---|
+| Audit a build ("check my build", "best practices review"), or apply the fixes | [`gradle-best-practices`](../gradle-best-practices/SKILL.md): Gradle's 48 best practices, each finding linked to the User Manual. Run it as part of `/gradle` and merge its findings into the health report below. |
+| Upgrade the Gradle wrapper | [`gradle-wrapper-upgrade`](../gradle-wrapper-upgrade/SKILL.md): pins `distributionSha256Sum`, runs `wrapper` twice, rolls back when the build no longer configures. `/gradle upgrade` uses it for the Gradle step. |
+
+When the two disagree with this skill, the official skill is right about Gradle, and this skill is right about AGP and Android. A project's own rules (its `CLAUDE.md`/`AGENTS.md`) beat both.
+
 ---
 
 ## Step 0 — Gather facts before changing anything

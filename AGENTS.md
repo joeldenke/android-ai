@@ -94,6 +94,8 @@ Reusable slash commands invoked with `/skill-name [args]`.
 | Skill | Command | What it does |
 |---|---|---|
 | Gradle | `/gradle [task]` | AGP 9 / Gradle 9 health check, upgrades, build speed, convention plugins, supply chain, R8 |
+| Gradle Best Practices | `/gradle-best-practices` | Gradle's official skill: audit against the Gradle best practices, then apply the fixes |
+| Gradle Wrapper Upgrade | `/gradle-wrapper-upgrade [version]` | Gradle's official skill: wrapper upgrade with pinned checksum and rollback |
 | Static Analysis | `/static-analysis [task]` | ktlint + Detekt + Compose rules + Android Lint, baselines, CI gates |
 | GitHub Actions Android | `/github-actions-android [task]` | PR check, release, Firebase Test Lab, dependency review, Gradle caching |
 | Release | `/release [task]` | Signing config, Play Store track management, versioning, GitHub releases |
