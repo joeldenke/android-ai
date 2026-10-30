@@ -86,6 +86,8 @@ Where agents have no hooks, the same gates are enforced by Gradle tasks (`/stati
 | `write-tests` | Unit, integration, Compose UI and screenshot tests (JUnit Jupiter, Turbine, MockK, Roborazzi) |
 | `static-analysis` | ktlint + Detekt + Compose rules + Android Lint, baselines, CI gates |
 | `gradle` | AGP 9 / Gradle 9: upgrades, convention plugins, configuration cache, build speed, supply chain, R8 |
+| `gradle-best-practices` | Gradle's official skill: audits a build against the Gradle best practices and applies the fixes |
+| `gradle-wrapper-upgrade` | Gradle's official skill: upgrades the wrapper with a pinned checksum, rolls back if the build breaks |
 | `github-actions-android` | CI with `gradle/actions`, SHA-pinned actions, Firebase Test Lab |
 | `release` | Signing, Play tracks, versioning, GitHub releases |
 | `security` | OWASP Mobile Top 10, pinning, secrets, Play Integrity |
@@ -125,6 +127,7 @@ In Claude Code, invoke them as `/skill-name`. Other agents load them automatical
 
 ```
 skills/<name>/SKILL.md      ← source of truth (Agent Skills format; optional references/)
+skills/gradle-*/            ← Gradle's official skills, vendored by scripts/vendor-gradle-skills.sh — do not edit
 agents/                     ← Claude Code sub-agents
 hooks/hooks.json + scripts/ ← Claude Code hooks
 mcp/servers.json            ← canonical MCP server list (used by install.sh mcp)

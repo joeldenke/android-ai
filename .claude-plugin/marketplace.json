@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Expert-level Android development agents, skills, and hooks — Google, JetBrains, and Slack Compose best practices",
-    "version": "1.2.0"
+    "version": "1.3.0"
   },
   "plugins": [
     {
