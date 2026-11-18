@@ -53,6 +53,17 @@ install.sh google-skills                                                  # expo
 
 Google's official Android skills (AGP 9 upgrade, edge-to-edge, Navigation 3, R8 analyzer, XML→Compose…) are installed with `android skills add <name>` and live side by side with these skills. See [`skills/google-integrations`](skills/google-integrations/SKILL.md) for which one wins when they overlap.
 
+### Matt Pocock's engineering skills (optional, Claude Code)
+
+General engineering workflow skills from [mattpocock/skills](https://github.com/mattpocock/skills) — grilling a plan, specs and tickets, TDD, bug diagnosis, domain modelling. They are not Android-specific and pair well with this plugin. This repo's `.claude/settings.json` already enables them; in your own project:
+
+```
+/plugin marketplace add mattpocock/skills
+/plugin install mattpocock-skills@mattpocock
+```
+
+Both plugins have a `code-review` skill: use `android-ai:code-review` for Android rules, `mattpocock-skills:code-review` for a general review.
+
 ---
 
 ## What each agent gets
